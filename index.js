@@ -15,42 +15,42 @@ try {
     console.log('Downloading and installing SFDX cli');
 
     const wget = spawnSync('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
-    wget.stdout.on("data", data => {
-        console.log(`stdout: ${data}`);
-    });
+    // wget.stdout.on("data", data => {
+    //     console.log(`stdout: ${data}`);
+    // });
     
-    wget.stderr.on("data", data => {
-        console.log(`stderr: ${data}`);
-    });
+    // wget.stderr.on("data", data => {
+    //     console.log(`stderr: ${data}`);
+    // });
     
-    wget.on('error', (error) => {
-        console.log(`error: ${error.message}`);
-        throw error; 
-    });
+    // wget.on('error', (error) => {
+    //     console.log(`error: ${error.message}`);
+    //     throw error; 
+    // });
     
-    wget.on("close", code => {
-        console.log(`child process exited with code ${code}`);
-    });
+    // wget.on("close", code => {
+    //     console.log(`child process exited with code ${code}`);
+    // });
 
     spawnSync('mkdir', ['sfdx-cli']);
     spawnSync('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']);
     const instCli = spawnSync('./sfdx-cli/install', );
-    instCli.stdout.on("data", data => {
-        console.log(`stdout: ${data}`);
-    });
+    // instCli.stdout.on("data", data => {
+    //     console.log(`stdout: ${data}`);
+    // });
     
-    instCli.stderr.on("data", data => {
-        console.log(`stderr: ${data}`);
-    });
+    // instCli.stderr.on("data", data => {
+    //     console.log(`stderr: ${data}`);
+    // });
     
-    instCli.on('error', (error) => {
-        console.log(`error: ${error.message}`);
-        throw error; 
-    });
+    // instCli.on('error', (error) => {
+    //     console.log(`error: ${error.message}`);
+    //     throw error; 
+    // });
     
-    instCli.on("close", code => {
-        console.log(`child process exited with code ${code}`);
-    });
+    // instCli.on("close", code => {
+    //     console.log(`child process exited with code ${code}`);
+    // });
 
     spawnSync('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', certificate_path, '-out', 'server.key', '-base64', '-K', decryption_key, '-iv', decryption_iv]);
 
@@ -62,22 +62,23 @@ try {
 
     const connect = spawnSync('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc']);
     
-    connect.stdout.on("data", data => {
-        console.log(`stdout: ${data}`);
-    });
+    console.log('Child Process Id: ' + connect.pid);
+    // connect.stdout.on("data", data => {
+    //     console.log(`stdout: ${data}`);
+    // });
     
-    connect.stderr.on("data", data => {
-        console.log(`stderr: ${data}`);
-    });
+    // connect.stderr.on("data", data => {
+    //     console.log(`stderr: ${data}`);
+    // });
     
-    connect.on('error', (error) => {
-        console.log(`error: ${error.message}`);
-        throw error; 
-    });
+    // connect.on('error', (error) => {
+    //     console.log(`error: ${error.message}`);
+    //     throw error; 
+    // });
     
-    connect.on("close", code => {
-        console.log(`child process exited with code ${code}`);
-    });
+    // connect.on("close", code => {
+    //     console.log(`child process exited with code ${code}`);
+    // });
 } catch (error) {
     core.setFailed(error.message);
 }
