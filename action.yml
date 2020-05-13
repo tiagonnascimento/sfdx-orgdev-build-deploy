@@ -1,10 +1,23 @@
 name: 'build-deploy'
+author: Tiago Nascimento - tnascimento@salesforce.com
 description: 'Convert a Salesforce DX project into a metadata package and deploy it'
 inputs:
     type:
         description: 'Type of deployment, could be one of the two: production or sandbox (default)'
         required: true
         default: 'sandbox'
+
+    certificate_path:
+        description: 'Path for the encrypted certificate to be used on force:auth:jwt:grant'
+        required: true
+
+    decryption_key:
+        description: 'Decryption key to be used to decrypt the certificate'
+        required: true
+    
+    decryption_iv:
+        description: 'Decryption IV to be used to decrypt the certificate'
+        required: true
     
     client_id:  
         description: 'Client ID / Consumer Key of a connected app to the target destination'
@@ -14,6 +27,18 @@ inputs:
         description: 'Username to be used to connect in the target org'
         required: true
 
+    manifest_path:
+        description: 'Path on the current repository to the package.xml file that will be used to the package creation'
+        required: true
+
+    data_factory:
+        description: 'Path on the current repository to the apex script that will be used to create data required by the package'
+        required: false
+
 runs:
     using: 'node12'
     main: 'index.js'
+
+branding:
+    icon: 'cloud-lightning'
+    color: 'blue'
