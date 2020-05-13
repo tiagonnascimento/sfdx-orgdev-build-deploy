@@ -58,7 +58,7 @@ try {
 
     const instanceurl = type === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
 
-    console.log('Instance URL: ' + loginUrl);
+    console.log('Instance URL: ' + instanceurl);
 
     const connect = spawnSync('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc']);
     
