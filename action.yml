@@ -1,0 +1,19 @@
+name: 'build-deploy'
+description: 'Convert a Salesforce DX project into a metadata package and deploy it'
+inputs:
+    type:
+        description: 'Type of deployment, could be one of the two: production or sandbox (default)'
+        required: true
+        default: 'sandbox'
+    
+    client_id:  
+        description: 'Client ID / Consumer Key of a connected app to the target destination'
+        required: true
+
+    username:
+        description: 'Username to be used to connect in the target org'
+        required: true
+
+runs:
+    using: 'node12'
+    main: 'index.js'
