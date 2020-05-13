@@ -15,7 +15,6 @@ try {
     console.log('Downloading and installing SFDX cli');
 
     const wget = spawnSync('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
-    wget.stdout.setEncoding('utf8'); 
     wget.stdout.on("data", data => {
         console.log(`stdout: ${data}`);
     });
@@ -36,7 +35,6 @@ try {
     spawnSync('mkdir', ['sfdx-cli']);
     spawnSync('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']);
     const instCli = spawnSync('./sfdx-cli/install', );
-    instCli.stdout.setEncoding('utf8'); 
     instCli.stdout.on("data", data => {
         console.log(`stdout: ${data}`);
     });
@@ -64,7 +62,6 @@ try {
 
     const connect = spawnSync('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc']);
     
-    connect.stdout.setEncoding('utf8'); 
     connect.stdout.on("data", data => {
         console.log(`stdout: ${data}`);
     });
