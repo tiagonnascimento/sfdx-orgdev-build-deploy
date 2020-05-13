@@ -61,8 +61,6 @@ try {
     console.log('Instance URL: ' + instanceurl);
 
     const connect = spawnSync('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc']);
-    
-    console.log('Child Process Id: ' + connect.pid);
     // connect.stdout.on("data", data => {
     //     console.log(`stdout: ${data}`);
     // });
@@ -79,6 +77,17 @@ try {
     // connect.on("close", code => {
     //     console.log(`child process exited with code ${code}`);
     // });
+
+    const convert = spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path]);
+
+    const destructive = spawnSync('sfdx', ['force:mdapi:deploy', '-d', 'destructive', '-u', 'sfdc', '--wait', '10', '-g']);
+
+    const deploy = spawnSync('sfdx', ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests']);
+
+    if (data_factory !== '' || data_factory !== null) {
+        const apex = spawnSync('sfdx', ['force:apex:execute', '-f', data_factory, '-u', 'sfdc']);
+    }
+
 } catch (error) {
     core.setFailed(error.message);
 }
