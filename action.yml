@@ -27,6 +27,10 @@ inputs:
         description: 'Username to be used to connect in the target org'
         required: true
 
+    destructive_path:
+        description: 'Path for the destructive changes directory'
+        required: false
+
     manifest_path:
         description: 'Path on the current repository to the package.xml file that will be used to the package creation'
         required: true

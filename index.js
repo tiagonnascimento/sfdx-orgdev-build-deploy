@@ -9,83 +9,38 @@ try {
     const decryption_iv = core.getInput('decryption_iv');
     const clientId = core.getInput('client_id');
     const username = core.getInput('username');
+    const destructive_path = core.getInput('destructive_path');
     const manifest_path = core.getInput('manifest_path');
     const data_factory = core.getInput('data_factory');
 
     console.log('Downloading and installing SFDX cli');
-
-    const wget = spawnSync('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
-    // wget.stdout.on("data", data => {
-    //     console.log(`stdout: ${data}`);
-    // });
-    
-    // wget.stderr.on("data", data => {
-    //     console.log(`stderr: ${data}`);
-    // });
-    
-    // wget.on('error', (error) => {
-    //     console.log(`error: ${error.message}`);
-    //     throw error; 
-    // });
-    
-    // wget.on("close", code => {
-    //     console.log(`child process exited with code ${code}`);
-    // });
-
-    spawnSync('mkdir', ['sfdx-cli']);
-    spawnSync('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']);
-    const instCli = spawnSync('./sfdx-cli/install', );
-    // instCli.stdout.on("data", data => {
-    //     console.log(`stdout: ${data}`);
-    // });
-    
-    // instCli.stderr.on("data", data => {
-    //     console.log(`stderr: ${data}`);
-    // });
-    
-    // instCli.on('error', (error) => {
-    //     console.log(`error: ${error.message}`);
-    //     throw error; 
-    // });
-    
-    // instCli.on("close", code => {
-    //     console.log(`child process exited with code ${code}`);
-    // });
-
-    spawnSync('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', certificate_path, '-out', 'server.key', '-base64', '-K', decryption_key, '-iv', decryption_iv]);
+    spawnSync('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz'], { stdio: 'inherit'});
+    spawnSync('mkdir', ['sfdx-cli'], { stdio: 'inherit'});
+    spawnSync('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']), { stdio: 'inherit'};
+    spawnSync('./sfdx-cli/install', [], { stdio: 'inherit'});
+    console.log('SFDX cli installed');
+    console.log('Decrypting certificate');
+    spawnSync('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', certificate_path, '-out', 'server.key', '-base64', '-K', decryption_key, '-iv', decryption_iv], { stdio: 'inherit'});
 
     console.log('Authenticating in the target org');
-
     const instanceurl = type === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
-
     console.log('Instance URL: ' + instanceurl);
+    spawnSync('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc'], { stdio: 'inherit'});
 
-    const connect = spawnSync('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc']);
-    // connect.stdout.on("data", data => {
-    //     console.log(`stdout: ${data}`);
-    // });
-    
-    // connect.stderr.on("data", data => {
-    //     console.log(`stderr: ${data}`);
-    // });
-    
-    // connect.on('error', (error) => {
-    //     console.log(`error: ${error.message}`);
-    //     throw error; 
-    // });
-    
-    // connect.on("close", code => {
-    //     console.log(`child process exited with code ${code}`);
-    // });
+    if (destructive_path !== null && destructive_path !== '') {
+        console.log('Applying destructive changes')
+        spawnSync('sfdx', ['force:mdapi:deploy', '-d', destructive_path, '-u', 'sfdc', '--wait', '10', '-g'], { stdio: 'inherit'});
+    }
 
-    const convert = spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path]);
+    console.log('Converting the source into metadata')
+    spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path], { stdio: 'inherit'});
 
-    const destructive = spawnSync('sfdx', ['force:mdapi:deploy', '-d', 'destructive', '-u', 'sfdc', '--wait', '10', '-g']);
+    console.log('Deploy package');
+    spawnSync('sfdx', ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'], { stdio: 'inherit'});
 
-    const deploy = spawnSync('sfdx', ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests']);
-
-    if (data_factory !== '' || data_factory !== null) {
-        const apex = spawnSync('sfdx', ['force:apex:execute', '-f', data_factory, '-u', 'sfdc']);
+    if (data_factory !== null && data_factory !== '') {
+        console.log('Executing data factory');
+        const apex = spawnSync('sfdx', ['force:apex:execute', '-f', data_factory, '-u', 'sfdc'], { stdio: 'inherit'});
     }
 
 } catch (error) {
