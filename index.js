@@ -30,7 +30,7 @@ try {
     if (destructive_path !== null && destructive_path !== '') {
         console.log('Applying destructive changes')
         var argsDestructive = ['force:mdapi:deploy', '-d', destructive_path, '-u', 'sfdc', '--wait', '10', '-g'];
-        if (checkonly) {
+        if (checkonly === 'true') {
             argsDestructive.push('-c');
         }
         spawnSync('sfdx', argsDestructive, { stdio: 'inherit'});
@@ -41,7 +41,7 @@ try {
 
     console.log('Deploy package');
     var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'];
-    if (checkonly) {
+    if (checkonly === 'true') {
         argsDeploy.push('-c');
     }
     spawnSync('sfdx', argsDeploy, { stdio: 'inherit'});
