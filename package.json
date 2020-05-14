@@ -1,24 +1,30 @@
 {
-  "name": "orgdev-build-deploy",
+  "name": "sfdx-orgdev-build-deploy",
   "version": "1.0.0",
-  "description": "",
+  "description": "SFDX Org Development Model Build & Deploy action",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Professiona-Services-LATAM/orgdev-build-deploy.git"
+    "url": "git+https://github.com/tiagonnascimento/sfdx-orgdev-build-deploy.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "GitHub",
+    "Actions",
+    "JavaScript",
+    "Salesforce",
+    "SFDX",
+    "Org Development Model"
+  ],
+  "author": "Tiago Nascimento<tnascimento@salesforce.com>",
+  "license": "MIT",
   "bugs": {
-    "url": "https://github.com/Professiona-Services-LATAM/orgdev-build-deploy/issues"
+    "url": "https://github.com/tiagonnascimento/sfdx-orgdev-build-deploy/issues"
   },
-  "homepage": "https://github.com/Professiona-Services-LATAM/orgdev-build-deploy#readme",
+  "homepage": "https://github.com/tiagonnascimento/sfdx-orgdev-build-deploy#readme",
   "dependencies": {
-    "@actions/core": "^1.2.4",
-    "@actions/github": "^2.2.0"
+    "@actions/core": "^1.2.4"
   }
 }

@@ -1,5 +1,4 @@
 const core = require('@actions/core');
-const github = require('@actions/github');
 const { spawnSync } = require('child_process');
 
 try {
@@ -9,6 +8,7 @@ try {
     const decryption_iv = core.getInput('decryption_iv');
     const clientId = core.getInput('client_id');
     const username = core.getInput('username');
+    const checkonly = core.getInput('checkonly');
     const destructive_path = core.getInput('destructive_path');
     const manifest_path = core.getInput('manifest_path');
     const data_factory = core.getInput('data_factory');
@@ -29,14 +29,22 @@ try {
 
     if (destructive_path !== null && destructive_path !== '') {
         console.log('Applying destructive changes')
-        spawnSync('sfdx', ['force:mdapi:deploy', '-d', destructive_path, '-u', 'sfdc', '--wait', '10', '-g'], { stdio: 'inherit'});
+        var argsDestructive = ['force:mdapi:deploy', '-d', destructive_path, '-u', 'sfdc', '--wait', '10', '-g'];
+        if (checkonly) {
+            argsDestructive.push('-c');
+        }
+        spawnSync('sfdx', argsDestructive, { stdio: 'inherit'});
     }
 
     console.log('Converting the source into metadata')
     spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path], { stdio: 'inherit'});
 
     console.log('Deploy package');
-    spawnSync('sfdx', ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'], { stdio: 'inherit'});
+    var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'];
+    if (checkonly) {
+        argsDeploy.push('-c');
+    }
+    spawnSync('sfdx', argsDeploy, { stdio: 'inherit'});
 
     if (data_factory !== null && data_factory !== '') {
         console.log('Executing data factory');
