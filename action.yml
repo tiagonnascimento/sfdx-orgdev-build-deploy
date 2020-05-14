@@ -27,6 +27,11 @@ inputs:
         description: 'Username to be used to connect in the target org'
         required: true
 
+    checkonly:
+        description: 'Boolean (true/false) that will indicate whether the deploy is a checkonly deploy or not. If is a checkonly, on force:mdapi:deploy command the option -c will be appended'
+        required: true
+        default: true
+
     destructive_path:
         description: 'Path for the destructive changes directory'
         required: false
