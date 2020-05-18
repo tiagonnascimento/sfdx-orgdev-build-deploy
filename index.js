@@ -9,6 +9,7 @@ try {
     const clientId = core.getInput('client_id');
     const username = core.getInput('username');
     const checkonly = core.getInput('checkonly');
+    const pre_manifest_path = core.getInput('pre_manifest_path');
     const destructive_path = core.getInput('destructive_path');
     const manifest_path = core.getInput('manifest_path');
     const data_factory = core.getInput('data_factory');
@@ -26,6 +27,19 @@ try {
     const instanceurl = type === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
     console.log('Instance URL: ' + instanceurl);
     spawnSync('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc'], { stdio: 'inherit'});
+
+    if (pre_manifest_path !== null && pre_manifest_path !== '') {
+        console.log('Converting the source into metadata for the pre-deployment');
+        spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'preconvertedapi', '-x', manifest_path], { stdio: 'inherit'});
+    
+        console.log('Deploy pre-package');
+        var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'preconvertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'];
+        if (checkonly === 'true') {
+            argsDeploy.push('-c');
+        }
+        spawnSync('sfdx', argsDeploy, { stdio: 'inherit'});
+    }
+
 
     if (destructive_path !== null && destructive_path !== '') {
         console.log('Applying destructive changes')
