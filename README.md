@@ -9,6 +9,7 @@ It's a Javascript [Github Action](https://github.com/features/actions), that wil
 - Decrypt the certificate
 - Auth in the target sandbox/org 
 - Convert the source format into metadata
+- Deploy/Check a pre-package (optional)
 - Deploy/Check destructive changes (optional)
 - Deploy/Check main package
 - Execute Data Factory Apex
@@ -58,6 +59,7 @@ jobs:
                 client_id: ${{ secrets.CONSUMER_KEY_TI01 }}
                 username: ${{ secrets.USERNAME_TI01 }}
                 checkonly: false
+                pre_manifest_path: manifest/package-preDeploy.xml
                 destructive_path: destructive
                 manifest_path: manifest/package-baseDeploy.xml
                 data_factory: scripts/apex/CreateBaseData.apex
@@ -73,8 +75,9 @@ jobs:
 | `client_id`           | _required_  | Client ID that will be used to connect into the target org/sandbox |
 | `username`            | _required_  | Username that will be used to connect into the target org/sandbox |
 | `checkonly`           | _required_  | Boolean value to indicate whether this action should execute the deploy or only check it, default is false, but if true it will add -c parameter on the force:mdapi:deploy commands |
+| `pre_manifest_path`   | _optional_  | Path on the current repository to the package.xml that represents the pre package to be deployed. This package is optional and will be applied before the destructive changes (if informed) and therefore before the main package deployment. Normally will be under manifest/package-preDeploy.xml | 
 | `destructive_path`    | _optional_  | Path on the repo where the destructive changes directory is - if not informed, it's not executed |
-| `manifest_path`       | _required_  | Path on the repo where the package.xml is stored. This file will be used as basis to convert the source into metadata. Normally will be under manifest/package.xml | 
+| `manifest_path`       | _required_  | Path on the current repository to the package.xml that represents the main package to be deployed. Based on this file the metadata package will be created and deployed. Normally will be under manifest/package.xml | 
 | `data_factory`        | _optional_  | Path on the repo where an APEX script used as a data factory is stored. if not informed, it's not executed |
 
 ## Contributing to the Repository

@@ -1,4 +1,4 @@
-name: 'build-deploy'
+name: 'sfdx-orgdev-build-deploy'
 author: Tiago Nascimento - tnascimento@salesforce.com
 description: 'Convert a Salesforce DX project into a metadata package and deploy it'
 inputs:
@@ -32,12 +32,16 @@ inputs:
         required: true
         default: true
 
+    pre_manifest_path:
+        description: 'Path on the current repository to the package.xml that represents the pre package to be deployed. This package will be applied before the destructive changes (if informed) and before the main package deployment'
+        required: false
+    
     destructive_path:
         description: 'Path for the destructive changes directory'
         required: false
 
     manifest_path:
-        description: 'Path on the current repository to the package.xml file that will be used to the package creation'
+        description: 'Path on the current repository to the package.xml that represents the main package to be deployed. Based on this file the metadata package will be created and deployed'
         required: true
 
     data_factory:
