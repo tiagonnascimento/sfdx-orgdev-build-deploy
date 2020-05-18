@@ -198,7 +198,7 @@ try {
 
     if (pre_manifest_path !== null && pre_manifest_path !== '') {
         console.log('Converting the source into metadata for the pre-deployment');
-        spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'preconvertedapi', '-x', manifest_path], { stdio: 'inherit'});
+        spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'preconvertedapi', '-x', pre_manifest_path], { stdio: 'inherit'});
     
         console.log('Deploy pre-package');
         var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'preconvertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'];
