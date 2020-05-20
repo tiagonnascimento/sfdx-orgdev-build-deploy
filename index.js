@@ -2,7 +2,15 @@ const core = require('@actions/core');
 const { spawnSync } = require('child_process');
 
 function executeCommand(command, args) {
+
     var spawn = spawnSync(command, args);
+
+    if (spawn.stdout !== undefined) {
+        console.log("Command executed: " + command)
+        console.log("With the following args: " + args.toString());
+        console.log("Having the following return: " + spawn.stdout.toString());
+    }
+
     if (spawn.error !== undefined || spawn.status !== 0) {
         var errorMessage = '';
         if (spawn.error !== undefined) {
@@ -14,13 +22,11 @@ function executeCommand(command, args) {
         }
         console.log(errorMessage);
         throw Error(errorMessage);
-    } else if (spawn.stdout !== undefined) {
-        console.log("Command executed was: " + command + " with args: " + args.toString());
-        console.log("Return was: " + spawn.stdout.toString());
-    }
+    } 
 }
 
 try {
+
     const type = core.getInput('type');
     const certificate_path = core.getInput('certificate_path');
     const decryption_key = core.getInput('decryption_key');
@@ -52,7 +58,7 @@ try {
         executeCommand('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'preconvertedapi', '-x', pre_manifest_path]);
     
         console.log('Deploy pre-package');
-        var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'preconvertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'];
+        var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'preconvertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
         if (checkonly === 'true') {
             argsDeploy.push('-c');
         }
@@ -62,7 +68,7 @@ try {
 
     if (destructive_path !== null && destructive_path !== '') {
         console.log('Applying destructive changes')
-        var argsDestructive = ['force:mdapi:deploy', '-d', destructive_path, '-u', 'sfdc', '--wait', '10', '-g'];
+        var argsDestructive = ['force:mdapi:deploy', '-d', destructive_path, '-u', 'sfdc', '--wait', '10', '-g', '--json'];
         if (checkonly === 'true') {
             argsDestructive.push('-c');
         }
@@ -73,7 +79,7 @@ try {
     executeCommand('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path]);
 
     console.log('Deploy package');
-    var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'];
+    var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
     if (checkonly === 'true') {
         argsDeploy.push('-c');
     }
