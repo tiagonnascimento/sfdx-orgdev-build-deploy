@@ -2,7 +2,7 @@ const core = require('@actions/core');
 const { spawnSync } = require('child_process');
 
 function executeCommand(command, args) {
-    var spawn = spawnSync(command, args, { stdio: ['inherit', 'inherit', 'pipe' ]});
+    var spawn = spawnSync(command, args);
     if (spawn.error !== undefined || spawn.status !== 0) {
         var errorMessage = '';
         if (spawn.error !== undefined) {
@@ -12,6 +12,9 @@ function executeCommand(command, args) {
         }
         console.log(errorMessage);
         throw Error(errorMessage);
+    } else if (spawn.stdout !== undefined) {
+        console.log("Command executed was: " + command + " with args: " + args.toString());
+        console.log("Return was: " + spawn.stdout.toString());
     }
 }
 
