@@ -169,6 +169,15 @@ module.exports = require("path");
 const core = __webpack_require__(827);
 const { spawnSync } = __webpack_require__(129);
 
+function executeCommand(command, args) {
+    var spawn;
+    spawn = spawnSync(command, args, { stdio: ['inherit', 'inherit', 'pipe'] });
+    if (spawn.stderr) {
+        console.log(Error(spawn.stderr));
+        throw Error(spawn.stderr);
+    }
+}
+
 try {
     const type = core.getInput('type');
     const certificate_path = core.getInput('certificate_path');
@@ -183,29 +192,29 @@ try {
     const data_factory = core.getInput('data_factory');
 
     console.log('Downloading and installing SFDX cli');
-    spawnSync('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz'], { stdio: 'inherit'});
-    spawnSync('mkdir', ['sfdx-cli'], { stdio: 'inherit'});
-    spawnSync('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']), { stdio: 'inherit'};
-    spawnSync('./sfdx-cli/install', [], { stdio: 'inherit'});
+    executeCommand('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
+    executeCommand('mkdir', ['sfdx-cli']);
+    executeCommand('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']);
+    executeCommand('./sfdx-cli/install', []);
     console.log('SFDX cli installed');
     console.log('Decrypting certificate');
-    spawnSync('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', certificate_path, '-out', 'server.key', '-base64', '-K', decryption_key, '-iv', decryption_iv], { stdio: 'inherit'});
+    executeCommand('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', certificate_path, '-out', 'server.key', '-base64', '-K', decryption_key, '-iv', decryption_iv]);
 
     console.log('Authenticating in the target org');
     const instanceurl = type === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
     console.log('Instance URL: ' + instanceurl);
-    spawnSync('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc'], { stdio: 'inherit'});
+    executeCommand('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc']);
 
     if (pre_manifest_path !== null && pre_manifest_path !== '') {
         console.log('Converting the source into metadata for the pre-deployment');
-        spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'preconvertedapi', '-x', pre_manifest_path], { stdio: 'inherit'});
+        executeCommand('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'preconvertedapi', '-x', pre_manifest_path]);
     
         console.log('Deploy pre-package');
         var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'preconvertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'];
         if (checkonly === 'true') {
             argsDeploy.push('-c');
         }
-        spawnSync('sfdx', argsDeploy, { stdio: 'inherit'});
+        executeCommand('sfdx', argsDeploy);
     }
 
 
@@ -215,22 +224,22 @@ try {
         if (checkonly === 'true') {
             argsDestructive.push('-c');
         }
-        spawnSync('sfdx', argsDestructive, { stdio: 'inherit'});
+        executeCommand('sfdx', argsDestructive);
     }
 
     console.log('Converting the source into metadata')
-    spawnSync('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path], { stdio: 'inherit'});
+    executeCommand('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path]);
 
     console.log('Deploy package');
     var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'convertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests'];
     if (checkonly === 'true') {
         argsDeploy.push('-c');
     }
-    spawnSync('sfdx', argsDeploy, { stdio: 'inherit'});
+    executeCommand('sfdx', argsDeploy);
 
     if (data_factory !== null && data_factory !== '') {
         console.log('Executing data factory');
-        const apex = spawnSync('sfdx', ['force:apex:execute', '-f', data_factory, '-u', 'sfdc'], { stdio: 'inherit'});
+        const apex = executeCommand('sfdx', ['force:apex:execute', '-f', data_factory, '-u', 'sfdc']);
     }
 
 } catch (error) {
