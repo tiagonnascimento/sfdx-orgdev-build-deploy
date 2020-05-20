@@ -170,11 +170,10 @@ const core = __webpack_require__(827);
 const { spawnSync } = __webpack_require__(129);
 
 function executeCommand(command, args) {
-    var spawn;
-    spawn = spawnSync(command, args, { stdio: ['inherit', 'inherit', 'pipe'] });
-    if (spawn.stderr) {
-        console.log(Error(spawn.stderr));
-        throw Error(spawn.stderr);
+    spawnSync(command, args, { stdio: 'inherit' });
+    if (process.stderr) {
+        console.log(Error(spawnSync.stderr));
+        throw Error(spawnSync.stderr);
     }
 }
 
