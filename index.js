@@ -7,8 +7,10 @@ function executeCommand(command, args) {
         var errorMessage = '';
         if (spawn.error !== undefined) {
             errorMessage = spawn.error;
-        } else {
-            errorMessage = spawn.stderr.toString();
+        } 
+        
+        if (spawn.stderr !== undefined) {
+            errorMessage += " " + spawn.stderr.toString();
         }
         console.log(errorMessage);
         throw Error(errorMessage);
