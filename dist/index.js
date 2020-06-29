@@ -108,6 +108,9 @@ try {
     executeCommand('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc']);
 
     if (pre_manifest_path !== null && pre_manifest_path !== '') {
+        console.log('Remove preconvertedapi folder');
+        executeCommand('rm', ['-rf', 'preconvertedapi']);
+
         console.log('Converting the source into metadata for the pre-deployment');
         executeCommand('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'preconvertedapi', '-x', pre_manifest_path]);
     
@@ -128,6 +131,9 @@ try {
         }
         executeCommand('sfdx', argsDestructive);
     }
+
+    console.log('Remove convertedAPI folder');
+    executeCommand('rm', ['-rf', 'convertedapi']);
 
     console.log('Converting the source into metadata')
     executeCommand('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path]);
