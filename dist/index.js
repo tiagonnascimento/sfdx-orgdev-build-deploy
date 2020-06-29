@@ -92,6 +92,18 @@ try {
     const destructive_path = core.getInput('destructive_path');
     const manifest_path = core.getInput('manifest_path');
     const data_factory = core.getInput('data_factory');
+    
+    console.log("type " + type);
+    console.log("certificate_path " + certificate_path);
+    console.log("decryption_key " + decryption_key);
+    console.log("decryption_iv " + decryption_iv);
+    console.log("clientId " + clientId);
+    console.log("username " + username);
+    console.log("checkonly " + checkonly);
+    console.log("pre_manifest_path " + pre_manifest_path);
+    console.log("destructive_path " + destructive_path);
+    console.log("manifest_path " + manifest_path);
+    console.log("data_factory " + data_factory);
 
     console.log('Downloading and installing SFDX cli');
     executeCommand('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
