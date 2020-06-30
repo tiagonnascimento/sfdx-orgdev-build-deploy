@@ -5,7 +5,7 @@ const xml2js = require('xml2js');
 const { ifError } = require('assert');
 
 
-module.exports.getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
+let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
     var parser = new xml2js.Parser();
     var typeTmp = null;
     var classes = null;
@@ -54,7 +54,7 @@ login = {
 
 **/
 
-module.exports.login = function (cert, login){
+let login = function (cert, login){
     core.debug('=== Decrypting certificate');
     execCommand.run('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', cert.certificatePath, '-out', 'server.key', '-base64', '-K', cert.decryptionKey, '-iv', cert.decryptionIV]);
 
@@ -64,16 +64,41 @@ module.exports.login = function (cert, login){
     execCommand.run('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', login.clientId, '--jwtkeyfile', 'server.key', '--username', login.username, '--setalias', 'sfdc']);
 };
 
-module.exports.deploy = function (cert, login){
-    core.debug('=== Decrypting certificate');
-    execCommand.run('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', cert.certificatePath, '-out', 'server.key', '-base64', '-K', cert.decryptionKey, '-iv', cert.decryptionIV]);
+let deploy = function (deploy){
+    var manifestsArray = deploy.manifestToDeploy.split(",");
+    var manifestTmp;
+    var testClassesTmp;
 
-    console.log('Authenticating in the target org');
-    const instanceurl = login.orgType === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
-    console.log('Instance URL: ' + instanceurl);
-    execCommand.run('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', login.clientId, '--jwtkeyfile', 'server.key', '--username', login.username, '--setalias', 'sfdc']);
+    for(var i = 0; i < manifestsArray.length; i++){
+        manifestTmp = manifestsArray[i];
+        testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultClassesPath, deploy.defaultDefault);
+
+        console.log("las clases son : "  + testClassesTmp);
+
+        //var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'preconvertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
+        var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
+        
+        if(deploy.checkonly === 'true'){
+            argsDeploy.push('--checkonly');
+        }
+        if(testClassesTmp){
+            argsDeploy.push("--testlevel");
+            argsDeploy.push("RunSpecifiedTests");
+
+            argsDeploy.push("--runtests");
+            argsDeploy.push(testClassesTmp);
+        }
+
+        execCommand.run('sfdx', argsDeploy);
+
+    }
 };
-    
+
+
+
+module.exports.deploy = deploy;
+module.exports.login = login;
+
 
 /*module.exports.login = function (cert, login){
  
