@@ -4,7 +4,9 @@
   "description": "SFDX Org Development Model Build & Deploy action",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "eslint src/index.js",
+    "package": "ncc build src/index.js -o dist",
+    "test": "eslint src/index.js && jest"
   },
   "repository": {
     "type": "git",
@@ -19,12 +21,22 @@
     "Org Development Model"
   ],
   "author": "Tiago Nascimento<tnascimento@salesforce.com>",
+  "contributors": [
+    "Manuel Cortes<manuel.cortes@salesforce.com>"
+  ],
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/tiagonnascimento/sfdx-orgdev-build-deploy/issues"
   },
   "homepage": "https://github.com/tiagonnascimento/sfdx-orgdev-build-deploy#readme",
   "dependencies": {
-    "@actions/core": "^1.2.4"
+    "@actions/core": "^1.2.4",
+    "@actions/github": "^4.0.0",
+    "xml2js": "^0.4.23"
+  },
+  "devDependencies": {
+    "@zeit/ncc": "^0.20.5",
+    "eslint": "^6.3.0",
+    "jest": "^24.9.0"
   }
 }
