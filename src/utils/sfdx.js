@@ -2,8 +2,6 @@ const core = require('@actions/core')
 const execCommand = require('./exec-command.js');
 const fs = require('fs');
 const xml2js = require('xml2js');
-const { ifError } = require('assert');
-
 
 let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
     var parser = new xml2js.Parser();
@@ -38,22 +36,6 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
     return testClasses.join(",");
 }
 
-/*
-
-cert = {
-    certificatePath : "",
-    decryptionKey : "",
-    decryptionIV : ""
-}
-
-login = {
-    clientId : "",
-    orgType : "",
-    username : ""
-}
-
-**/
-
 let login = function (cert, login){
     core.debug('=== Decrypting certificate');
     execCommand.run('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', cert.certificatePath, '-out', 'server.key', '-base64', '-K', cert.decryptionKey, '-iv', cert.decryptionIV]);
@@ -71,13 +53,9 @@ let deploy = function (deploy){
 
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
-        testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultClassesPath, deploy.defaultDefault);
-
+        testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
         console.log("las clases son : "  + testClassesTmp);
-
-        //var argsDeploy = ['force:mdapi:deploy', '--wait', '10', '-d', 'preconvertedapi', '-u', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
         var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
-        
         if(deploy.checkonly === 'true'){
             argsDeploy.push('--checkonly');
         }
@@ -87,52 +65,13 @@ let deploy = function (deploy){
 
             argsDeploy.push("--runtests");
             argsDeploy.push(testClassesTmp);
+        }else{
+            argsDeploy.push("--testlevel");
+            argsDeploy.push("NoTestRun");
         }
-
         execCommand.run('sfdx', argsDeploy);
-
     }
 };
 
-
-
 module.exports.deploy = deploy;
 module.exports.login = login;
-
-
-/*module.exports.login = function (cert, login){
- 
-    var generateCertCMD = "openssl  enc -nosalt -aes-256-cbc -d -in " + cert.certificatePath + " -out server.key -base64 -K " + cert.decryptionKey + " -iv " + cert.decryptionIV;
-    var loginGranCMD;
-    core.debug("=== Comando para generar certificado: " + generateCertCMD);
-    exec(generateCertCMD, function(error, stdout, stderr){
-        core.debug("error" + error);
-        core.debug("stdout" + stdout);
-        core.debug("stderr" + stderr);
-        
-        if(error){
-            throw(stderr);
-        }
-
-        
-    
-        core.debug('Authenticating in the target org');
-        const instanceurl = login.orgType === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
-        core.debug('Instance URL: ' + instanceurl);
-
-        loginGranCMD = "sfdx force:auth:jwt:grant --instanceurl " + instanceurl + " --clientid " + login.clientId + " --jwtkeyfile server.key --username " + login.username+ " --setalias SFDC";
-        core.debug('Grant command: ' + loginGranCMD);
-
-        exec(generateCertCMD, function(error, stdout, stderr){
-            core.debug("error" + error);
-            core.debug("stdout" + stdout);
-            core.debug("stderr" + stderr);
-            if(error){
-                throw(stderr);
-            }
-
-            core.debug("=== SFDX Login successfully ===");
-            
-        });
-    });
-}*/

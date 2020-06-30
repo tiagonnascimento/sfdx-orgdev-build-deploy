@@ -1,7 +1,6 @@
 const core = require('@actions/core')
 const execCommand = require('./exec-command.js');
 
-
 var fnInstallSFDX = function(){
     core.debug('=== Downloading and installing SFDX cli ===');
     execCommand.run('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);

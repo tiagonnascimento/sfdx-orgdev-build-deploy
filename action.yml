@@ -48,6 +48,18 @@ inputs:
         description: 'Path on the current repository to the apex script that will be used to create data required by the package'
         required: false
 
+
+
+    default_source_path:
+        description: 'Path of the project'
+        required: false
+        default : "force-app/main/default"
+
+    deploy_properties_file:
+        description: 'Deploy properties file path'
+        required: false
+
+
 runs:
     using: 'node12'
     main: 'dist/index.js'

@@ -73,3 +73,7 @@ manifest/
 devops/
 
 DATOS.js
+deploy.properties
+server.key
+sfdx-project.json
+config/
