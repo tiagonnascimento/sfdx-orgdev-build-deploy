@@ -14817,11 +14817,14 @@ try {
   var propertiesPath = core.getInput('deploy_properties_file');
   var properties = {};
 
+  core.info("==========>  " + propertiesPath);
+
   //Load properties
   if(propertiesPath){
     core.info("Loading properties file: " + propertiesPath);
     properties = propertiesReader(propertiesPath);
   }else{
+    //Simulate load properties
     properties.get = function(){return null};
     core.info("There is not properites file to load.");
   }

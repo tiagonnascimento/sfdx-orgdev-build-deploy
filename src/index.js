@@ -17,6 +17,8 @@ try {
   var propertiesPath = core.getInput('deploy_properties_file');
   var properties = {};
 
+  core.info("==========>  " + propertiesPath);
+
   //Load properties
   if(propertiesPath){
     core.info("Loading properties file: " + propertiesPath);
