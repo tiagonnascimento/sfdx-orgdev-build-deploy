@@ -40,9 +40,9 @@ let login = function (cert, login){
     core.debug('=== Decrypting certificate');
     execCommand.run('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', cert.certificatePath, '-out', 'server.key', '-base64', '-K', cert.decryptionKey, '-iv', cert.decryptionIV]);
 
-    console.log('Authenticating in the target org');
+    core.info('==== Authenticating in the target org');
     const instanceurl = login.orgType === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
-    console.log('Instance URL: ' + instanceurl);
+    core.info('Instance URL: ' + instanceurl);
     execCommand.run('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', login.clientId, '--jwtkeyfile', 'server.key', '--username', login.username, '--setalias', 'sfdc']);
 };
 
@@ -54,9 +54,10 @@ let deploy = function (deploy){
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
         testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
-        console.log("las clases son : "  + testClassesTmp);
+        core.info("las clases son : "  + testClassesTmp);
         var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
-        if(deploy.checkonly === 'true'){
+        if(deploy.checkonly){
+            core.info("===== CHECH ONLY ====");
             argsDeploy.push('--checkonly');
         }
         if(testClassesTmp){
