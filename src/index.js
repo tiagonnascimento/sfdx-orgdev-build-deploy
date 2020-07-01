@@ -22,6 +22,7 @@ try {
     core.info("Loading properties file: " + propertiesPath);
     properties = propertiesReader(propertiesPath);
   }else{
+    //Simulate load properties
     properties.get = function(){return null};
     core.info("There is not properites file to load.");
   }
