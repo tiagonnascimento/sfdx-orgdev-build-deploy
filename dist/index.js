@@ -14822,6 +14822,7 @@ try {
     core.debug("Loading properties file: " + propertiesPath);
     properties = propertiesReader(propertiesPath);
   }else{
+    properties.get = function(){return null};
     core.debug("There is not properites file to load.");
   }
 
