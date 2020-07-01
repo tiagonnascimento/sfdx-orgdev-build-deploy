@@ -1758,9 +1758,12 @@ let deploy = function (deploy){
         core.info("las clases son : "  + testClassesTmp);
         var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
         
+        core.info("=============== deploy.checkonly " + deploy.checkonly);
         if(deploy.checkonly){
             core.info("===== CHECH ONLY ====");
             argsDeploy.push('--checkonly');
+        }else{
+            core.info("===== NO CHECH ONLY ====");
         }
 
         if(testClassesTmp){
