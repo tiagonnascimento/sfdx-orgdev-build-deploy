@@ -1757,10 +1757,12 @@ let deploy = function (deploy){
         testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
         core.info("las clases son : "  + testClassesTmp);
         var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
+        
         if(deploy.checkonly){
             core.info("===== CHECH ONLY ====");
             argsDeploy.push('--checkonly');
         }
+
         if(testClassesTmp){
             argsDeploy.push("--testlevel");
             argsDeploy.push("RunSpecifiedTests");
@@ -14847,8 +14849,10 @@ try {
   deploy.defaultSourcePath = core.getInput('default_source_path');
   deploy.defaultTestClass = properties.get('deploy.default_test_class');
   deploy.manifestToDeploy = properties.get('deploy.manifest_to_deploy');
-  deploy.checkout = (core.getInput('checkonly') == 'true' )? true : false;
-
+  core.info("core.getInput('checkonly') " + core.getInput('checkonly'));
+  
+  deploy.checkout = (core.getInput('checkonly') === 'true' )? true : false;
+  core.info("deploy.checkout: " + deploy.checkout);
   //const data_factory = core.getInput('data_factory');
   //const destructive_path = core.getInput('destructive_path');
   
