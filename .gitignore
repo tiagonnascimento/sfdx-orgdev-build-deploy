@@ -77,3 +77,4 @@ deploy.properties
 server.key
 sfdx-project.json
 config/
+Retag.sh
