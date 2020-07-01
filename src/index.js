@@ -19,11 +19,11 @@ try {
 
   //Load properties
   if(propertiesPath){
-    core.debug("Loading properties file: " + propertiesPath);
+    core.info("Loading properties file: " + propertiesPath);
     properties = propertiesReader(propertiesPath);
   }else{
     properties.get = function(){return null};
-    core.debug("There is not properites file to load.");
+    core.info("There is not properites file to load.");
   }
 
   //Install dependecies  
