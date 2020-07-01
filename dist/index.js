@@ -1675,9 +1675,9 @@ module.exports.run = function(command, args) {
     var spawn = spawnSync(command, args);
 
     if (spawn.stdout !== undefined) {
-        core.debug("Command executed: " + command)
-        core.debug("With the following args: " + args.toString());
-        core.debug("Having the following return: " + spawn.stdout.toString());
+        core.info("Command executed: " + command)
+        core.info("With the following args: " + args.toString());
+        core.info("Having the following return: " + spawn.stdout.toString());
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
