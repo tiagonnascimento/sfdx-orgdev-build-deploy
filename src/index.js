@@ -49,7 +49,7 @@ try {
   core.info("core.getInput('checkonly') " + core.getInput('checkonly'));
   
   deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
-  core.info("deploy.checkout: " + deploy.checkout);
+  
   //const data_factory = core.getInput('data_factory');
   //const destructive_path = core.getInput('destructive_path');
   

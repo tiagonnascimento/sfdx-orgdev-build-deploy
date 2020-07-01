@@ -1758,12 +1758,10 @@ let deploy = function (deploy){
         core.info("las clases son : "  + testClassesTmp);
         var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
         
-        core.info("=============== deploy.checkonly " + deploy.checkonly);
+        
         if(deploy.checkonly){
             core.info("===== CHECH ONLY ====");
             argsDeploy.push('--checkonly');
-        }else{
-            core.info("===== NO CHECH ONLY ====");
         }
 
         if(testClassesTmp){
@@ -14855,7 +14853,7 @@ try {
   core.info("core.getInput('checkonly') " + core.getInput('checkonly'));
   
   deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
-  core.info("deploy.checkout: " + deploy.checkout);
+  
   //const data_factory = core.getInput('data_factory');
   //const destructive_path = core.getInput('destructive_path');
   
