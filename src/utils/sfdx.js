@@ -86,7 +86,7 @@ let deploy = function (deploy){
             isLogResponse = false;
         }
 
-        
+        core.info("Calling deploy: ---->  " + isLogResponse);
         execCommand.run('sfdx', argsDeploy, isLogResponse);
     }
 };

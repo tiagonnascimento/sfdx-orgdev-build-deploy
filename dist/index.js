@@ -1681,8 +1681,10 @@ module.exports.run = function(command, args, isLogResponse) {
     }
 
     if (spawn.stdout !== undefined) {
+        
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
+        console.log("---> " + isLogResponse);
         if(isLogResponse){
             console.log("Having the following return: " + spawn.stdout.toString());
         }
@@ -1796,7 +1798,7 @@ let deploy = function (deploy){
             isLogResponse = false;
         }
 
-        
+        core.info("Calling deploy: ---->  " + isLogResponse);
         execCommand.run('sfdx', argsDeploy, isLogResponse);
     }
 };
