@@ -3,12 +3,13 @@ const { spawnSync } = require('child_process');
 
 module.exports.run = function(command, args, isLogResponse) {
     var extraParams = {};
-    extraParams.shell = true;
-
-    extraParams.cwd = process.cwd();
-    extraParams.env = process.env;
-    extraParams.stdio = [/*process.stdin, */process.stdout /*, process.stderr*/];
+    
+    //extraParams.shell = true;
+    //extraParams.cwd = process.cwd();
+    //extraParams.env = process.env;
+    //extraParams.stdio = [/*process.stdin, */process.stdout /*, process.stderr*/];
     extraParams.encoding = 'utf-8';
+    extraParams.maxBuffer = 1024 * 1024 * 10
 
     var spawn = spawnSync(command, args, extraParams);
 
