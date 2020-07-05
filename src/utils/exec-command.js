@@ -18,7 +18,7 @@ module.exports.run = function(command, args, isLogResponse) {
         isLogResponse = false;
     }
 
-    if (spawn.stdout !== undefined) {
+    if (spawn.stdout) {
         
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
