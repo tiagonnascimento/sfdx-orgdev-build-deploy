@@ -53,7 +53,6 @@ let deploy = function (deploy){
     var manifestsArray = deploy.manifestToDeploy.split(",");
     var manifestTmp;
     var testClassesTmp;
-    var isLogResponse = true;
 
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
@@ -78,16 +77,13 @@ let deploy = function (deploy){
             }else{
                 argsDeploy.push("--testlevel");
                 argsDeploy.push("RunLocalTests");
-                isLogResponse = false;
             }
         }else{
             argsDeploy.push("--testlevel");
             argsDeploy.push(deploy.testlevel);
-            isLogResponse = false;
         }
 
-        core.info("Calling deploy: ---->  " + isLogResponse);
-        execCommand.run('sfdx', argsDeploy, isLogResponse);
+        execCommand.run('sfdx', argsDeploy);
     }
 };
 
