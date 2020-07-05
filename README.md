@@ -8,10 +8,8 @@ It's a Javascript [Github Action](https://github.com/features/actions), that wil
 - Download and install Salesforce CLI
 - Decrypt the certificate
 - Auth in the target sandbox/org 
-- Convert the source format into metadata
-- Deploy/Check a pre-package (optional)
+- Deploy/Check one or more deploy package
 - Deploy/Check destructive changes (optional)
-- Deploy/Check main package
 - Execute Data Factory Apex
 
 ## Getting Started
@@ -61,7 +59,7 @@ jobs:
                 checkonly: false
                 pre_manifest_path: manifest/package-preDeploy.xml
                 destructive_path: destructive
-                manifest_path: manifest/package-baseDeploy.xml
+                manifest_path: manifest/package-01.xml,manifest/package-02.xml,manifest/package-03.xml
                 data_factory: scripts/apex/CreateBaseData.apex
 ```
 
@@ -75,10 +73,14 @@ jobs:
 | `client_id`           | _required_  | Client ID that will be used to connect into the target org/sandbox |
 | `username`            | _required_  | Username that will be used to connect into the target org/sandbox |
 | `checkonly`           | _required_  | Boolean value to indicate whether this action should execute the deploy or only check it, default is false, but if true it will add -c parameter on the force:mdapi:deploy commands |
-| `pre_manifest_path`   | _optional_  | Path on the current repository to the package.xml that represents the pre package to be deployed. This package is optional and will be applied before the destructive changes (if informed) and therefore before the main package deployment. Normally will be under manifest/package-preDeploy.xml | 
 | `destructive_path`    | _optional_  | Path on the repo where the destructive changes directory is - if not informed, it's not executed |
-| `manifest_path`       | _required_  | Path on the current repository to the package.xml that represents the main package to be deployed. Based on this file the metadata package will be created and deployed. Normally will be under manifest/package.xml | 
+| `manifest_path`       | _required_  | Path on the current repository to one or more package.xml that represents the packages to be deployed. Based on this files the metadata package will be created and deployed in the order specified. Ex:  | manifest/package-01.xml,manifest/package-02.xml,manifest/package-03.xml
 | `data_factory`        | _optional_  | Path on the repo where an APEX script used as a data factory is stored. if not informed, it's not executed |
+| `default_source_path` | _optional_  | Path on the current repository to the project folder. Usually is "force-app/main/default" |
+| `default_test_class`  | _optional_  | Default test class to be executed on deployments |
+| `properties_file`     | _optional_  | Path on the current repository to deploy properties file path |
+
+
 
 ## Contributing to the Repository
 

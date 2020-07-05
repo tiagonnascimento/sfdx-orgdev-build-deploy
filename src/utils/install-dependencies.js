@@ -12,6 +12,6 @@ var fnInstallSFDX = function(){
 
 module.exports.install = function(command, args) {
     //Installs Salesforce DX CLI
-    fnInstallSFDX();    
+    fnInstallSFDX(); 
 
 };

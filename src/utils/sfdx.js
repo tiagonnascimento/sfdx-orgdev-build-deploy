@@ -30,7 +30,10 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
             }
         }
     }else{
-        testClasses.push(defaultTestClass);
+        if(defaultTestClass){
+            testClasses.push(defaultTestClass);
+        }
+        
     }
     
     return testClasses.join(",");
@@ -53,9 +56,9 @@ let deploy = function (deploy){
 
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
-        testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
+        
         core.info("las clases son : "  + testClassesTmp);
-        var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--testlevel', 'RunLocalTests', '--json'];
+        var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--json'];
         
         
         if(deploy.checkonly){
@@ -63,19 +66,48 @@ let deploy = function (deploy){
             argsDeploy.push('--checkonly');
         }
 
-        if(testClassesTmp){
-            argsDeploy.push("--testlevel");
-            argsDeploy.push("RunSpecifiedTests");
-
-            argsDeploy.push("--runtests");
-            argsDeploy.push(testClassesTmp);
+        if(deploy.testlevel == "RunSpecifiedTests"){
+            testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
+            if(testClassesTmp){
+                argsDeploy.push("--testlevel");
+                argsDeploy.push(deploy.testlevel);
+    
+                argsDeploy.push("--runtests");
+                argsDeploy.push(testClassesTmp);
+            }else{
+                argsDeploy.push("--testlevel");
+                argsDeploy.push("RunLocalTests");
+            }
         }else{
             argsDeploy.push("--testlevel");
-            argsDeploy.push("NoTestRun");
+            argsDeploy.push(deploy.testlevel);
         }
+
+        
         execCommand.run('sfdx', argsDeploy);
     }
 };
 
+let destructiveDeploy = function (deploy){
+    if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
+        core.info('=== Applying destructive changes ===')
+        var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', 'sfdc', '--wait', '10', '-g', '--json'];
+        if (deploy.checkonly) {
+            argsDestructive.push('--checkonly');
+        }
+        execCommand.run('sfdx', argsDestructive);
+    }
+};
+
+let dataFactory = function (deploy){
+    if (deploy.dataFactory  && deploy.checkonly === 'false') {
+        core.info('Executing data factory');
+        const apex = executeCommand('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', 'sfdc']);
+    }
+};
+
+
 module.exports.deploy = deploy;
 module.exports.login = login;
+module.exports.destructiveDeploy = destructiveDeploy;
+module.exports.dataFactory = dataFactory;

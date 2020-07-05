@@ -14,10 +14,8 @@ try {
   var cert = {};
   var login = {};
   var deploy = {};
-  var propertiesPath = core.getInput('deploy_properties_file');
+  var propertiesPath = core.getInput('properties_file');
   var properties = {};
-
-  core.info("==========>  " + propertiesPath);
 
   //Load properties
   if(propertiesPath){
@@ -44,20 +42,27 @@ try {
   
   //Load deploy params
   deploy.defaultSourcePath = core.getInput('default_source_path');
-  deploy.defaultTestClass = properties.get('deploy.default_test_class');
-  deploy.manifestToDeploy = properties.get('deploy.manifest_to_deploy');
-  core.info("core.getInput('checkonly') " + core.getInput('checkonly'));
-  
+  deploy.defaultTestClass = core.getInput('default_test_class');
+  deploy.manifestToDeploy = core.getInput('manifest_path');
+  deploy.destructivePath = core.getInput('destructive_path');
+  deploy.dataFactory = core.getInput('data_factory');
   deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
+  deploy.testlevel = core.getInput('deploy_testlevel');
   
   //const data_factory = core.getInput('data_factory');
-  //const destructive_path = core.getInput('destructive_path');
+  
   
   //Login to Org
   sfdx.login(cert,login);
 
   //Deply/Checkonly to Org
   sfdx.deploy(deploy);
+  
+  //Destructive deploy
+  sfdx.destructiveDeploy(deploy);
+
+  //Executes data factory script
+  sfdx.dataFactory(deploy);
   
 } catch (error) {
   core.setFailed(error.message);

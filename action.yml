@@ -32,31 +32,37 @@ inputs:
         required: true
         default: true
 
-    pre_manifest_path:
-        description: 'Path on the current repository to the package.xml that represents the pre package to be deployed. This package will be applied before the destructive changes (if informed) and before the main package deployment'
-        required: false
-    
     destructive_path:
         description: 'Path for the destructive changes directory'
         required: false
 
     manifest_path:
-        description: 'Path on the current repository to the package.xml that represents the main package to be deployed. Based on this file the metadata package will be created and deployed'
+        description: 'Path on the current repository to one or more package.xml that represents the packages to be deployed. Based on this files the metadata package will be created and deployed in the order specified'
         required: true
 
     data_factory:
         description: 'Path on the current repository to the apex script that will be used to create data required by the package'
         required: false
 
+    deploy_testlevel:
+        description: 'Specifies which tests are run as part of a deployment. Valid values are: NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg'
+        required: true
+        default: RunLocalTests
 
+#Optional params        
 
     default_source_path:
-        description: 'Path of the project'
+        description: 'Path on the current repository to the project folder. Usually is "force-app/main/default"'
         required: false
         default : "force-app/main/default"
 
-    deploy_properties_file:
-        description: 'Deploy properties file path'
+    default_test_class:
+        description: 'Default test class to be executed on deployments'
+        required: false
+        default : false
+
+    properties_file:
+        description: 'Path on the current repository to deploy properties file path'
         required: false
 
 
