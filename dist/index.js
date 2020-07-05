@@ -1683,7 +1683,10 @@ module.exports.run = function(command, args, isLogResponse) {
     if (spawn.stdout !== undefined) {
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
-        core.info("Having the following return: " + spawn.stdout.toString());
+        if(isLogResponse){
+            console.log("---> " + isLogResponse);
+        }
+        console.log("Having the following return: " + spawn.stdout.toString());
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
