@@ -1671,8 +1671,14 @@ module.exports = require("assert");
 const core = __webpack_require__(357)
 const { spawnSync } = __webpack_require__(129);
 
-module.exports.run = function(command, args) {
+module.exports.run = function(command, args, isLogResponse) {
     var spawn = spawnSync(command, args);
+
+    if(isLogResponse === undefined){
+        isLogResponse = true;
+    }else{
+        isLogResponse = false;
+    }
 
     if (spawn.stdout !== undefined) {
         core.info("Command executed: " + command)
@@ -1754,6 +1760,7 @@ let deploy = function (deploy){
     var manifestsArray = deploy.manifestToDeploy.split(",");
     var manifestTmp;
     var testClassesTmp;
+    var isLogResponse = true;
 
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
@@ -1778,14 +1785,16 @@ let deploy = function (deploy){
             }else{
                 argsDeploy.push("--testlevel");
                 argsDeploy.push("RunLocalTests");
+                isLogResponse = false;
             }
         }else{
             argsDeploy.push("--testlevel");
             argsDeploy.push(deploy.testlevel);
+            isLogResponse = false;
         }
 
         
-        execCommand.run('sfdx', argsDeploy);
+        execCommand.run('sfdx', argsDeploy, isLogResponse);
     }
 };
 
