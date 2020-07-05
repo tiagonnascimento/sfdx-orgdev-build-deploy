@@ -2,7 +2,9 @@ const core = require('@actions/core')
 const { spawnSync } = require('child_process');
 
 module.exports.run = function(command, args, isLogResponse) {
-    var spawn = spawnSync(command, args);
+    var extraParams = {};
+    extraParams.shell = true;
+    var spawn = spawnSync(command, args, extraParams);
 
     if(isLogResponse === undefined){
         isLogResponse = true;

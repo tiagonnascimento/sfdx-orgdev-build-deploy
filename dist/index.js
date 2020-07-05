@@ -1672,7 +1672,9 @@ const core = __webpack_require__(357)
 const { spawnSync } = __webpack_require__(129);
 
 module.exports.run = function(command, args, isLogResponse) {
-    var spawn = spawnSync(command, args);
+    var extraParams = {};
+    extraParams.shell = true;
+    var spawn = spawnSync(command, args, extraParams);
 
     if(isLogResponse === undefined){
         isLogResponse = true;
