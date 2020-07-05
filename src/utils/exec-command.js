@@ -7,7 +7,7 @@ module.exports.run = function(command, args, isLogResponse) {
 
     extraParams.cwd = process.cwd();
     extraParams.env = process.env;
-    extraParams.stdio = [process.stdin, process.stdout, process.stderr];
+    extraParams.stdio = [/*process.stdin, */process.stdout /*, process.stderr*/];
     extraParams.encoding = 'utf-8';
 
     var spawn = spawnSync(command, args, extraParams);
