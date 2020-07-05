@@ -22,11 +22,7 @@ module.exports.run = function(command, args, isLogResponse) {
         
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
-        console.log("---> " + isLogResponse);
-        if(isLogResponse){
-            console.log("Having the following return: " + spawn.stdout.toString());
-        }
-        
+        core.info("Having the following return: " + spawn.stdout.toString());
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
