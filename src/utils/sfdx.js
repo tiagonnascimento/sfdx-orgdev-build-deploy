@@ -4,6 +4,7 @@ const fs = require('fs');
 const xml2js = require('xml2js');
 
 let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
+    core.info("=== getApexTestClass ===");
     var parser = new xml2js.Parser();
     var typeTmp = null;
     var classes = null;
@@ -40,6 +41,7 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
 }
 
 let login = function (cert, login){
+    core.info("=== login ===");
     core.debug('=== Decrypting certificate');
     execCommand.run('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', cert.certificatePath, '-out', 'server.key', '-base64', '-K', cert.decryptionKey, '-iv', cert.decryptionIV]);
 
@@ -51,7 +53,6 @@ let login = function (cert, login){
 
 let deploy = function (deploy){
     core.info("=== deploy ===");
-    core.info(deploy);
 
     var manifestsArray = deploy.manifestToDeploy.split(",");
     var manifestTmp;
@@ -92,6 +93,7 @@ let deploy = function (deploy){
 };
 
 let destructiveDeploy = function (deploy){
+    core.info("=== destructiveDeploy ===");
     if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
         core.info('=== Applying destructive changes ===')
         var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', 'sfdc', '--wait', '10', '-g', '--json'];
@@ -103,6 +105,7 @@ let destructiveDeploy = function (deploy){
 };
 
 let dataFactory = function (deploy){
+    core.info("=== dataFactory ===");
     if (deploy.dataFactory  && deploy.checkonly === 'false') {
         core.info('Executing data factory');
         const apex = executeCommand('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', 'sfdc']);
