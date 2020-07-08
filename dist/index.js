@@ -1761,6 +1761,9 @@ let login = function (cert, login){
 };
 
 let deploy = function (deploy){
+    core.info("=== deploy ===");
+    core.info(deploy);
+
     var manifestsArray = deploy.manifestToDeploy.split(",");
     var manifestTmp;
     var testClassesTmp;
@@ -14892,6 +14895,10 @@ try {
   deploy.manifestToDeploy = core.getInput('manifest_path');
   deploy.destructivePath = core.getInput('destructive_path');
   deploy.dataFactory = core.getInput('data_factory');
+
+  console.log("ORUEBAAAA  " + core.getInput('checkonly') );
+  console.log("ORUEBAAAA  " + ((core.getInput('checkonly') === 'true' )? true : false) );
+
   deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
   deploy.testlevel = core.getInput('deploy_testlevel');
   

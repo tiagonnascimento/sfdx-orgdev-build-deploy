@@ -50,6 +50,9 @@ let login = function (cert, login){
 };
 
 let deploy = function (deploy){
+    core.info("=== deploy ===");
+    core.info(deploy);
+
     var manifestsArray = deploy.manifestToDeploy.split(",");
     var manifestTmp;
     var testClassesTmp;
