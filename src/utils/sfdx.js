@@ -56,11 +56,9 @@ let deploy = function (deploy){
 
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
-        
-        core.info("las clases son : "  + testClassesTmp);
+
         var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--json'];
-        
-        
+
         if(deploy.checkonly){
             core.info("===== CHECH ONLY ====");
             argsDeploy.push('--checkonly');
@@ -68,6 +66,9 @@ let deploy = function (deploy){
 
         if(deploy.testlevel == "RunSpecifiedTests"){
             testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
+
+            core.info("las clases son : "  + testClassesTmp);
+            
             if(testClassesTmp){
                 argsDeploy.push("--testlevel");
                 argsDeploy.push(deploy.testlevel);
