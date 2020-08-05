@@ -38,7 +38,7 @@ try {
     const destructive_path = core.getInput('destructive_path');
     const manifest_path = core.getInput('manifest_path');
     const data_factory = core.getInput('data_factory');
-
+    
     console.log('Downloading and installing SFDX cli');
     executeCommand('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
     executeCommand('mkdir', ['-p', 'sfdx-cli']);
