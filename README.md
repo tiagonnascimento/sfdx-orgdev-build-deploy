@@ -57,7 +57,6 @@ jobs:
                 client_id: ${{ secrets.CONSUMER_KEY_TI01 }}
                 username: ${{ secrets.USERNAME_TI01 }}
                 checkonly: false
-                pre_manifest_path: manifest/package-preDeploy.xml
                 destructive_path: destructive
                 manifest_path: manifest/package-01.xml,manifest/package-02.xml,manifest/package-03.xml
                 data_factory: scripts/apex/CreateBaseData.apex
