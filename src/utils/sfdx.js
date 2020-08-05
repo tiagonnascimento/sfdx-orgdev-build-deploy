@@ -106,7 +106,7 @@ let destructiveDeploy = function (deploy){
 
 let dataFactory = function (deploy){
     core.info("=== dataFactory ===");
-    if (deploy.dataFactory  && deploy.checkonly === 'false') {
+    if (deploy.dataFactory  && !deploy.checkonly) {
         core.info('Executing data factory');
         const apex = executeCommand('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', 'sfdc']);
     }

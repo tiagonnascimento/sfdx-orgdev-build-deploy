@@ -78,8 +78,30 @@ jobs:
 | `data_factory`        | _optional_  | Path on the repo where an APEX script used as a data factory is stored. if not informed, it's not executed |
 | `default_source_path` | _optional_  | Path on the current repository to the project folder. Usually is "force-app/main/default" |
 | `default_test_class`  | _optional_  | Default test class to be executed on deployments |
-| `properties_file`     | _optional_  | Path on the current repository to deploy properties file path |
 
+
+# Note for destructives changes.
+
+The `destructive_path` input is a path folder, with two files inside. For example if we have the following folder structure
+
+```bash
+  |-- config
+  |-- devops
+  |-- force-app
+  |-- manifest
+  |-- releases
+    |-- 01_releases
+       |-- destructive
+          |-- package.xml
+          |-- destructiveChanges.xml
+  |-- scripts
+  |-- .forceignore
+  |-- .gitignore
+  ...
+  |-- sfdx-project.json 
+```  
+
+The `destructive_path` will be `releases/01_releases/destructive`.
 
 
 ## Contributing to the Repository
