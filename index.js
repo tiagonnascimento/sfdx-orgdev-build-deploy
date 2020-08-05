@@ -38,10 +38,10 @@ try {
     const destructive_path = core.getInput('destructive_path');
     const manifest_path = core.getInput('manifest_path');
     const data_factory = core.getInput('data_factory');
-
+    
     console.log('Downloading and installing SFDX cli');
     executeCommand('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
-    executeCommand('mkdir', ['sfdx-cli']);
+    executeCommand('mkdir', ['-p', 'sfdx-cli']);
     executeCommand('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']);
     executeCommand('./sfdx-cli/install', []);
     console.log('SFDX cli installed');
@@ -54,6 +54,9 @@ try {
     executeCommand('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', clientId, '--jwtkeyfile', 'server.key', '--username', username, '--setalias', 'sfdc']);
 
     if (pre_manifest_path !== null && pre_manifest_path !== '') {
+        console.log('Remove preconvertedapi folder');
+        executeCommand('rm', ['-rf', 'preconvertedapi']);
+
         console.log('Converting the source into metadata for the pre-deployment');
         executeCommand('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'preconvertedapi', '-x', pre_manifest_path]);
     
@@ -75,6 +78,9 @@ try {
         executeCommand('sfdx', argsDestructive);
     }
 
+    console.log('Remove convertedAPI folder');
+    executeCommand('rm', ['-rf', 'convertedapi']);
+
     console.log('Converting the source into metadata')
     executeCommand('sfdx', ['force:source:convert', '-r', 'force-app/', '-d', 'convertedapi', '-x', manifest_path]);
 
@@ -85,7 +91,7 @@ try {
     }
     executeCommand('sfdx', argsDeploy);
 
-    if (data_factory !== null && data_factory !== '') {
+    if (data_factory !== null && data_factory !== '' && checkonly === 'false') {
         console.log('Executing data factory');
         const apex = executeCommand('sfdx', ['force:apex:execute', '-f', data_factory, '-u', 'sfdc']);
     }
