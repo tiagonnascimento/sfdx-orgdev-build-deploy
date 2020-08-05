@@ -48,7 +48,7 @@ jobs:
               uses: actions/checkout@v2
 
             - name: 'Build and Deploy'
-              uses: tiagonnascimento/sfdx-orgdev-build-deploy@v1
+              uses: tiagonnascimento/sfdx-orgdev-build-deploy@v2
               with:
                 type: 'sandbox'
                 certificate_path: devops/server.key.enc
