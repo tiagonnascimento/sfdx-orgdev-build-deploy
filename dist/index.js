@@ -19,13 +19,7 @@ module.exports =
 /******/ 		};
 /******/
 /******/ 		// Execute the module function
-/******/ 		var threw = true;
-/******/ 		try {
-/******/ 			modules[moduleId].call(module.exports, module, module.exports, __webpack_require__);
-/******/ 			threw = false;
-/******/ 		} finally {
-/******/ 			if(threw) delete installedModules[moduleId];
-/******/ 		}
+/******/ 		modules[moduleId].call(module.exports, module, module.exports, __webpack_require__);
 /******/
 /******/ 		// Flag the module as loaded
 /******/ 		module.l = true;
@@ -40,7 +34,7 @@ module.exports =
 /******/ 	// the startup function
 /******/ 	function startup() {
 /******/ 		// Load entry module and return exports
-/******/ 		return __webpack_require__(793);
+/******/ 		return __webpack_require__(897);
 /******/ 	};
 /******/
 /******/ 	// run startup
@@ -49,6 +43,545 @@ module.exports =
 /************************************************************************/
 /******/ ({
 
+/***/ 7:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const url = __webpack_require__(835);
+const http = __webpack_require__(605);
+const https = __webpack_require__(211);
+const pm = __webpack_require__(132);
+let tunnel;
+var HttpCodes;
+(function (HttpCodes) {
+    HttpCodes[HttpCodes["OK"] = 200] = "OK";
+    HttpCodes[HttpCodes["MultipleChoices"] = 300] = "MultipleChoices";
+    HttpCodes[HttpCodes["MovedPermanently"] = 301] = "MovedPermanently";
+    HttpCodes[HttpCodes["ResourceMoved"] = 302] = "ResourceMoved";
+    HttpCodes[HttpCodes["SeeOther"] = 303] = "SeeOther";
+    HttpCodes[HttpCodes["NotModified"] = 304] = "NotModified";
+    HttpCodes[HttpCodes["UseProxy"] = 305] = "UseProxy";
+    HttpCodes[HttpCodes["SwitchProxy"] = 306] = "SwitchProxy";
+    HttpCodes[HttpCodes["TemporaryRedirect"] = 307] = "TemporaryRedirect";
+    HttpCodes[HttpCodes["PermanentRedirect"] = 308] = "PermanentRedirect";
+    HttpCodes[HttpCodes["BadRequest"] = 400] = "BadRequest";
+    HttpCodes[HttpCodes["Unauthorized"] = 401] = "Unauthorized";
+    HttpCodes[HttpCodes["PaymentRequired"] = 402] = "PaymentRequired";
+    HttpCodes[HttpCodes["Forbidden"] = 403] = "Forbidden";
+    HttpCodes[HttpCodes["NotFound"] = 404] = "NotFound";
+    HttpCodes[HttpCodes["MethodNotAllowed"] = 405] = "MethodNotAllowed";
+    HttpCodes[HttpCodes["NotAcceptable"] = 406] = "NotAcceptable";
+    HttpCodes[HttpCodes["ProxyAuthenticationRequired"] = 407] = "ProxyAuthenticationRequired";
+    HttpCodes[HttpCodes["RequestTimeout"] = 408] = "RequestTimeout";
+    HttpCodes[HttpCodes["Conflict"] = 409] = "Conflict";
+    HttpCodes[HttpCodes["Gone"] = 410] = "Gone";
+    HttpCodes[HttpCodes["TooManyRequests"] = 429] = "TooManyRequests";
+    HttpCodes[HttpCodes["InternalServerError"] = 500] = "InternalServerError";
+    HttpCodes[HttpCodes["NotImplemented"] = 501] = "NotImplemented";
+    HttpCodes[HttpCodes["BadGateway"] = 502] = "BadGateway";
+    HttpCodes[HttpCodes["ServiceUnavailable"] = 503] = "ServiceUnavailable";
+    HttpCodes[HttpCodes["GatewayTimeout"] = 504] = "GatewayTimeout";
+})(HttpCodes = exports.HttpCodes || (exports.HttpCodes = {}));
+var Headers;
+(function (Headers) {
+    Headers["Accept"] = "accept";
+    Headers["ContentType"] = "content-type";
+})(Headers = exports.Headers || (exports.Headers = {}));
+var MediaTypes;
+(function (MediaTypes) {
+    MediaTypes["ApplicationJson"] = "application/json";
+})(MediaTypes = exports.MediaTypes || (exports.MediaTypes = {}));
+/**
+ * Returns the proxy URL, depending upon the supplied url and proxy environment variables.
+ * @param serverUrl  The server URL where the request will be sent. For example, https://api.github.com
+ */
+function getProxyUrl(serverUrl) {
+    let proxyUrl = pm.getProxyUrl(url.parse(serverUrl));
+    return proxyUrl ? proxyUrl.href : '';
+}
+exports.getProxyUrl = getProxyUrl;
+const HttpRedirectCodes = [
+    HttpCodes.MovedPermanently,
+    HttpCodes.ResourceMoved,
+    HttpCodes.SeeOther,
+    HttpCodes.TemporaryRedirect,
+    HttpCodes.PermanentRedirect
+];
+const HttpResponseRetryCodes = [
+    HttpCodes.BadGateway,
+    HttpCodes.ServiceUnavailable,
+    HttpCodes.GatewayTimeout
+];
+const RetryableHttpVerbs = ['OPTIONS', 'GET', 'DELETE', 'HEAD'];
+const ExponentialBackoffCeiling = 10;
+const ExponentialBackoffTimeSlice = 5;
+class HttpClientResponse {
+    constructor(message) {
+        this.message = message;
+    }
+    readBody() {
+        return new Promise(async (resolve, reject) => {
+            let output = Buffer.alloc(0);
+            this.message.on('data', (chunk) => {
+                output = Buffer.concat([output, chunk]);
+            });
+            this.message.on('end', () => {
+                resolve(output.toString());
+            });
+        });
+    }
+}
+exports.HttpClientResponse = HttpClientResponse;
+function isHttps(requestUrl) {
+    let parsedUrl = url.parse(requestUrl);
+    return parsedUrl.protocol === 'https:';
+}
+exports.isHttps = isHttps;
+class HttpClient {
+    constructor(userAgent, handlers, requestOptions) {
+        this._ignoreSslError = false;
+        this._allowRedirects = true;
+        this._allowRedirectDowngrade = false;
+        this._maxRedirects = 50;
+        this._allowRetries = false;
+        this._maxRetries = 1;
+        this._keepAlive = false;
+        this._disposed = false;
+        this.userAgent = userAgent;
+        this.handlers = handlers || [];
+        this.requestOptions = requestOptions;
+        if (requestOptions) {
+            if (requestOptions.ignoreSslError != null) {
+                this._ignoreSslError = requestOptions.ignoreSslError;
+            }
+            this._socketTimeout = requestOptions.socketTimeout;
+            if (requestOptions.allowRedirects != null) {
+                this._allowRedirects = requestOptions.allowRedirects;
+            }
+            if (requestOptions.allowRedirectDowngrade != null) {
+                this._allowRedirectDowngrade = requestOptions.allowRedirectDowngrade;
+            }
+            if (requestOptions.maxRedirects != null) {
+                this._maxRedirects = Math.max(requestOptions.maxRedirects, 0);
+            }
+            if (requestOptions.keepAlive != null) {
+                this._keepAlive = requestOptions.keepAlive;
+            }
+            if (requestOptions.allowRetries != null) {
+                this._allowRetries = requestOptions.allowRetries;
+            }
+            if (requestOptions.maxRetries != null) {
+                this._maxRetries = requestOptions.maxRetries;
+            }
+        }
+    }
+    options(requestUrl, additionalHeaders) {
+        return this.request('OPTIONS', requestUrl, null, additionalHeaders || {});
+    }
+    get(requestUrl, additionalHeaders) {
+        return this.request('GET', requestUrl, null, additionalHeaders || {});
+    }
+    del(requestUrl, additionalHeaders) {
+        return this.request('DELETE', requestUrl, null, additionalHeaders || {});
+    }
+    post(requestUrl, data, additionalHeaders) {
+        return this.request('POST', requestUrl, data, additionalHeaders || {});
+    }
+    patch(requestUrl, data, additionalHeaders) {
+        return this.request('PATCH', requestUrl, data, additionalHeaders || {});
+    }
+    put(requestUrl, data, additionalHeaders) {
+        return this.request('PUT', requestUrl, data, additionalHeaders || {});
+    }
+    head(requestUrl, additionalHeaders) {
+        return this.request('HEAD', requestUrl, null, additionalHeaders || {});
+    }
+    sendStream(verb, requestUrl, stream, additionalHeaders) {
+        return this.request(verb, requestUrl, stream, additionalHeaders);
+    }
+    /**
+     * Gets a typed object from an endpoint
+     * Be aware that not found returns a null.  Other errors (4xx, 5xx) reject the promise
+     */
+    async getJson(requestUrl, additionalHeaders = {}) {
+        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+        let res = await this.get(requestUrl, additionalHeaders);
+        return this._processResponse(res, this.requestOptions);
+    }
+    async postJson(requestUrl, obj, additionalHeaders = {}) {
+        let data = JSON.stringify(obj, null, 2);
+        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
+        let res = await this.post(requestUrl, data, additionalHeaders);
+        return this._processResponse(res, this.requestOptions);
+    }
+    async putJson(requestUrl, obj, additionalHeaders = {}) {
+        let data = JSON.stringify(obj, null, 2);
+        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
+        let res = await this.put(requestUrl, data, additionalHeaders);
+        return this._processResponse(res, this.requestOptions);
+    }
+    async patchJson(requestUrl, obj, additionalHeaders = {}) {
+        let data = JSON.stringify(obj, null, 2);
+        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
+        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
+        let res = await this.patch(requestUrl, data, additionalHeaders);
+        return this._processResponse(res, this.requestOptions);
+    }
+    /**
+     * Makes a raw http request.
+     * All other methods such as get, post, patch, and request ultimately call this.
+     * Prefer get, del, post and patch
+     */
+    async request(verb, requestUrl, data, headers) {
+        if (this._disposed) {
+            throw new Error('Client has already been disposed.');
+        }
+        let parsedUrl = url.parse(requestUrl);
+        let info = this._prepareRequest(verb, parsedUrl, headers);
+        // Only perform retries on reads since writes may not be idempotent.
+        let maxTries = this._allowRetries && RetryableHttpVerbs.indexOf(verb) != -1
+            ? this._maxRetries + 1
+            : 1;
+        let numTries = 0;
+        let response;
+        while (numTries < maxTries) {
+            response = await this.requestRaw(info, data);
+            // Check if it's an authentication challenge
+            if (response &&
+                response.message &&
+                response.message.statusCode === HttpCodes.Unauthorized) {
+                let authenticationHandler;
+                for (let i = 0; i < this.handlers.length; i++) {
+                    if (this.handlers[i].canHandleAuthentication(response)) {
+                        authenticationHandler = this.handlers[i];
+                        break;
+                    }
+                }
+                if (authenticationHandler) {
+                    return authenticationHandler.handleAuthentication(this, info, data);
+                }
+                else {
+                    // We have received an unauthorized response but have no handlers to handle it.
+                    // Let the response return to the caller.
+                    return response;
+                }
+            }
+            let redirectsRemaining = this._maxRedirects;
+            while (HttpRedirectCodes.indexOf(response.message.statusCode) != -1 &&
+                this._allowRedirects &&
+                redirectsRemaining > 0) {
+                const redirectUrl = response.message.headers['location'];
+                if (!redirectUrl) {
+                    // if there's no location to redirect to, we won't
+                    break;
+                }
+                let parsedRedirectUrl = url.parse(redirectUrl);
+                if (parsedUrl.protocol == 'https:' &&
+                    parsedUrl.protocol != parsedRedirectUrl.protocol &&
+                    !this._allowRedirectDowngrade) {
+                    throw new Error('Redirect from HTTPS to HTTP protocol. This downgrade is not allowed for security reasons. If you want to allow this behavior, set the allowRedirectDowngrade option to true.');
+                }
+                // we need to finish reading the response before reassigning response
+                // which will leak the open socket.
+                await response.readBody();
+                // strip authorization header if redirected to a different hostname
+                if (parsedRedirectUrl.hostname !== parsedUrl.hostname) {
+                    for (let header in headers) {
+                        // header names are case insensitive
+                        if (header.toLowerCase() === 'authorization') {
+                            delete headers[header];
+                        }
+                    }
+                }
+                // let's make the request with the new redirectUrl
+                info = this._prepareRequest(verb, parsedRedirectUrl, headers);
+                response = await this.requestRaw(info, data);
+                redirectsRemaining--;
+            }
+            if (HttpResponseRetryCodes.indexOf(response.message.statusCode) == -1) {
+                // If not a retry code, return immediately instead of retrying
+                return response;
+            }
+            numTries += 1;
+            if (numTries < maxTries) {
+                await response.readBody();
+                await this._performExponentialBackoff(numTries);
+            }
+        }
+        return response;
+    }
+    /**
+     * Needs to be called if keepAlive is set to true in request options.
+     */
+    dispose() {
+        if (this._agent) {
+            this._agent.destroy();
+        }
+        this._disposed = true;
+    }
+    /**
+     * Raw request.
+     * @param info
+     * @param data
+     */
+    requestRaw(info, data) {
+        return new Promise((resolve, reject) => {
+            let callbackForResult = function (err, res) {
+                if (err) {
+                    reject(err);
+                }
+                resolve(res);
+            };
+            this.requestRawWithCallback(info, data, callbackForResult);
+        });
+    }
+    /**
+     * Raw request with callback.
+     * @param info
+     * @param data
+     * @param onResult
+     */
+    requestRawWithCallback(info, data, onResult) {
+        let socket;
+        if (typeof data === 'string') {
+            info.options.headers['Content-Length'] = Buffer.byteLength(data, 'utf8');
+        }
+        let callbackCalled = false;
+        let handleResult = (err, res) => {
+            if (!callbackCalled) {
+                callbackCalled = true;
+                onResult(err, res);
+            }
+        };
+        let req = info.httpModule.request(info.options, (msg) => {
+            let res = new HttpClientResponse(msg);
+            handleResult(null, res);
+        });
+        req.on('socket', sock => {
+            socket = sock;
+        });
+        // If we ever get disconnected, we want the socket to timeout eventually
+        req.setTimeout(this._socketTimeout || 3 * 60000, () => {
+            if (socket) {
+                socket.end();
+            }
+            handleResult(new Error('Request timeout: ' + info.options.path), null);
+        });
+        req.on('error', function (err) {
+            // err has statusCode property
+            // res should have headers
+            handleResult(err, null);
+        });
+        if (data && typeof data === 'string') {
+            req.write(data, 'utf8');
+        }
+        if (data && typeof data !== 'string') {
+            data.on('close', function () {
+                req.end();
+            });
+            data.pipe(req);
+        }
+        else {
+            req.end();
+        }
+    }
+    /**
+     * Gets an http agent. This function is useful when you need an http agent that handles
+     * routing through a proxy server - depending upon the url and proxy environment variables.
+     * @param serverUrl  The server URL where the request will be sent. For example, https://api.github.com
+     */
+    getAgent(serverUrl) {
+        let parsedUrl = url.parse(serverUrl);
+        return this._getAgent(parsedUrl);
+    }
+    _prepareRequest(method, requestUrl, headers) {
+        const info = {};
+        info.parsedUrl = requestUrl;
+        const usingSsl = info.parsedUrl.protocol === 'https:';
+        info.httpModule = usingSsl ? https : http;
+        const defaultPort = usingSsl ? 443 : 80;
+        info.options = {};
+        info.options.host = info.parsedUrl.hostname;
+        info.options.port = info.parsedUrl.port
+            ? parseInt(info.parsedUrl.port)
+            : defaultPort;
+        info.options.path =
+            (info.parsedUrl.pathname || '') + (info.parsedUrl.search || '');
+        info.options.method = method;
+        info.options.headers = this._mergeHeaders(headers);
+        if (this.userAgent != null) {
+            info.options.headers['user-agent'] = this.userAgent;
+        }
+        info.options.agent = this._getAgent(info.parsedUrl);
+        // gives handlers an opportunity to participate
+        if (this.handlers) {
+            this.handlers.forEach(handler => {
+                handler.prepareRequest(info.options);
+            });
+        }
+        return info;
+    }
+    _mergeHeaders(headers) {
+        const lowercaseKeys = obj => Object.keys(obj).reduce((c, k) => ((c[k.toLowerCase()] = obj[k]), c), {});
+        if (this.requestOptions && this.requestOptions.headers) {
+            return Object.assign({}, lowercaseKeys(this.requestOptions.headers), lowercaseKeys(headers));
+        }
+        return lowercaseKeys(headers || {});
+    }
+    _getExistingOrDefaultHeader(additionalHeaders, header, _default) {
+        const lowercaseKeys = obj => Object.keys(obj).reduce((c, k) => ((c[k.toLowerCase()] = obj[k]), c), {});
+        let clientHeader;
+        if (this.requestOptions && this.requestOptions.headers) {
+            clientHeader = lowercaseKeys(this.requestOptions.headers)[header];
+        }
+        return additionalHeaders[header] || clientHeader || _default;
+    }
+    _getAgent(parsedUrl) {
+        let agent;
+        let proxyUrl = pm.getProxyUrl(parsedUrl);
+        let useProxy = proxyUrl && proxyUrl.hostname;
+        if (this._keepAlive && useProxy) {
+            agent = this._proxyAgent;
+        }
+        if (this._keepAlive && !useProxy) {
+            agent = this._agent;
+        }
+        // if agent is already assigned use that agent.
+        if (!!agent) {
+            return agent;
+        }
+        const usingSsl = parsedUrl.protocol === 'https:';
+        let maxSockets = 100;
+        if (!!this.requestOptions) {
+            maxSockets = this.requestOptions.maxSockets || http.globalAgent.maxSockets;
+        }
+        if (useProxy) {
+            // If using proxy, need tunnel
+            if (!tunnel) {
+                tunnel = __webpack_require__(252);
+            }
+            const agentOptions = {
+                maxSockets: maxSockets,
+                keepAlive: this._keepAlive,
+                proxy: {
+                    proxyAuth: proxyUrl.auth,
+                    host: proxyUrl.hostname,
+                    port: proxyUrl.port
+                }
+            };
+            let tunnelAgent;
+            const overHttps = proxyUrl.protocol === 'https:';
+            if (usingSsl) {
+                tunnelAgent = overHttps ? tunnel.httpsOverHttps : tunnel.httpsOverHttp;
+            }
+            else {
+                tunnelAgent = overHttps ? tunnel.httpOverHttps : tunnel.httpOverHttp;
+            }
+            agent = tunnelAgent(agentOptions);
+            this._proxyAgent = agent;
+        }
+        // if reusing agent across request and tunneling agent isn't assigned create a new agent
+        if (this._keepAlive && !agent) {
+            const options = { keepAlive: this._keepAlive, maxSockets: maxSockets };
+            agent = usingSsl ? new https.Agent(options) : new http.Agent(options);
+            this._agent = agent;
+        }
+        // if not using private agent and tunnel agent isn't setup then use global agent
+        if (!agent) {
+            agent = usingSsl ? https.globalAgent : http.globalAgent;
+        }
+        if (usingSsl && this._ignoreSslError) {
+            // we don't want to set NODE_TLS_REJECT_UNAUTHORIZED=0 since that will affect request for entire process
+            // http.RequestOptions doesn't expose a way to modify RequestOptions.agent.options
+            // we have to cast it to any and change it directly
+            agent.options = Object.assign(agent.options || {}, {
+                rejectUnauthorized: false
+            });
+        }
+        return agent;
+    }
+    _performExponentialBackoff(retryNumber) {
+        retryNumber = Math.min(ExponentialBackoffCeiling, retryNumber);
+        const ms = ExponentialBackoffTimeSlice * Math.pow(2, retryNumber);
+        return new Promise(resolve => setTimeout(() => resolve(), ms));
+    }
+    static dateTimeDeserializer(key, value) {
+        if (typeof value === 'string') {
+            let a = new Date(value);
+            if (!isNaN(a.valueOf())) {
+                return a;
+            }
+        }
+        return value;
+    }
+    async _processResponse(res, options) {
+        return new Promise(async (resolve, reject) => {
+            const statusCode = res.message.statusCode;
+            const response = {
+                statusCode: statusCode,
+                result: null,
+                headers: {}
+            };
+            // not found leads to null obj returned
+            if (statusCode == HttpCodes.NotFound) {
+                resolve(response);
+            }
+            let obj;
+            let contents;
+            // get the result from the body
+            try {
+                contents = await res.readBody();
+                if (contents && contents.length > 0) {
+                    if (options && options.deserializeDates) {
+                        obj = JSON.parse(contents, HttpClient.dateTimeDeserializer);
+                    }
+                    else {
+                        obj = JSON.parse(contents);
+                    }
+                    response.result = obj;
+                }
+                response.headers = res.message.headers;
+            }
+            catch (err) {
+                // Invalid resource (contents not json);  leaving result obj null
+            }
+            // note that 3xx redirects are handled by the http layer.
+            if (statusCode > 299) {
+                let msg;
+                // if exception/error in body, attempt to get better error
+                if (obj && obj.message) {
+                    msg = obj.message;
+                }
+                else if (contents && contents.length > 0) {
+                    // it may be the case that the exception is in the body message as string
+                    msg = contents;
+                }
+                else {
+                    msg = 'Failed request: (' + statusCode + ')';
+                }
+                let err = new Error(msg);
+                // attach statusCode and body obj (if available) to the error object
+                err['statusCode'] = statusCode;
+                if (response.result) {
+                    err['result'] = response.result;
+                }
+                reject(err);
+            }
+            else {
+                resolve(response);
+            }
+        });
+    }
+}
+exports.HttpClient = HttpClient;
+
+
+/***/ }),
+
 /***/ 16:
 /***/ (function(module) {
 
@@ -56,7 +589,1210 @@ module.exports = require("tls");
 
 /***/ }),
 
+/***/ 19:
+/***/ (function(module) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var XMLNamedNodeMap;
+
+  module.exports = XMLNamedNodeMap = (function() {
+    function XMLNamedNodeMap(nodes) {
+      this.nodes = nodes;
+    }
+
+    Object.defineProperty(XMLNamedNodeMap.prototype, 'length', {
+      get: function() {
+        return Object.keys(this.nodes).length || 0;
+      }
+    });
+
+    XMLNamedNodeMap.prototype.clone = function() {
+      return this.nodes = null;
+    };
+
+    XMLNamedNodeMap.prototype.getNamedItem = function(name) {
+      return this.nodes[name];
+    };
+
+    XMLNamedNodeMap.prototype.setNamedItem = function(node) {
+      var oldNode;
+      oldNode = this.nodes[node.nodeName];
+      this.nodes[node.nodeName] = node;
+      return oldNode || null;
+    };
+
+    XMLNamedNodeMap.prototype.removeNamedItem = function(name) {
+      var oldNode;
+      oldNode = this.nodes[name];
+      delete this.nodes[name];
+      return oldNode || null;
+    };
+
+    XMLNamedNodeMap.prototype.item = function(index) {
+      return this.nodes[Object.keys(this.nodes)[index]] || null;
+    };
+
+    XMLNamedNodeMap.prototype.getNamedItemNS = function(namespaceURI, localName) {
+      throw new Error("This DOM method is not implemented.");
+    };
+
+    XMLNamedNodeMap.prototype.setNamedItemNS = function(node) {
+      throw new Error("This DOM method is not implemented.");
+    };
+
+    XMLNamedNodeMap.prototype.removeNamedItemNS = function(namespaceURI, localName) {
+      throw new Error("This DOM method is not implemented.");
+    };
+
+    return XMLNamedNodeMap;
+
+  })();
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 21:
+/***/ (function(module) {
+
+"use strict";
+
+
+const isWin = process.platform === 'win32';
+
+function notFoundError(original, syscall) {
+    return Object.assign(new Error(`${syscall} ${original.command} ENOENT`), {
+        code: 'ENOENT',
+        errno: 'ENOENT',
+        syscall: `${syscall} ${original.command}`,
+        path: original.command,
+        spawnargs: original.args,
+    });
+}
+
+function hookChildProcess(cp, parsed) {
+    if (!isWin) {
+        return;
+    }
+
+    const originalEmit = cp.emit;
+
+    cp.emit = function (name, arg1) {
+        // If emitting "exit" event and exit code is 1, we need to check if
+        // the command exists and emit an "error" instead
+        // See https://github.com/IndigoUnited/node-cross-spawn/issues/16
+        if (name === 'exit') {
+            const err = verifyENOENT(arg1, parsed, 'spawn');
+
+            if (err) {
+                return originalEmit.call(cp, 'error', err);
+            }
+        }
+
+        return originalEmit.apply(cp, arguments); // eslint-disable-line prefer-rest-params
+    };
+}
+
+function verifyENOENT(status, parsed) {
+    if (isWin && status === 1 && !parsed.file) {
+        return notFoundError(parsed.original, 'spawn');
+    }
+
+    return null;
+}
+
+function verifyENOENTSync(status, parsed) {
+    if (isWin && status === 1 && !parsed.file) {
+        return notFoundError(parsed.original, 'spawnSync');
+    }
+
+    return null;
+}
+
+module.exports = {
+    hookChildProcess,
+    verifyENOENT,
+    verifyENOENTSync,
+    notFoundError,
+};
+
+
+/***/ }),
+
 /***/ 23:
+/***/ (function(module) {
+
+"use strict";
+
+
+/**
+ * Tries to execute a function and discards any error that occurs.
+ * @param {Function} fn - Function that might or might not throw an error.
+ * @returns {?*} Return-value of the function when no error occurred.
+ */
+module.exports = function(fn) {
+
+	try { return fn() } catch (e) {}
+
+}
+
+/***/ }),
+
+/***/ 25:
+/***/ (function(module) {
+
+"use strict";
+
+
+var isStream = module.exports = function (stream) {
+	return stream !== null && typeof stream === 'object' && typeof stream.pipe === 'function';
+};
+
+isStream.writable = function (stream) {
+	return isStream(stream) && stream.writable !== false && typeof stream._write === 'function' && typeof stream._writableState === 'object';
+};
+
+isStream.readable = function (stream) {
+	return isStream(stream) && stream.readable !== false && typeof stream._read === 'function' && typeof stream._readableState === 'object';
+};
+
+isStream.duplex = function (stream) {
+	return isStream.writable(stream) && isStream.readable(stream);
+};
+
+isStream.transform = function (stream) {
+	return isStream.duplex(stream) && typeof stream._transform === 'function' && typeof stream._transformState === 'object';
+};
+
+
+/***/ }),
+
+/***/ 35:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+var shebangRegex = __webpack_require__(885);
+
+module.exports = function (str) {
+	var match = str.match(shebangRegex);
+
+	if (!match) {
+		return null;
+	}
+
+	var arr = match[0].replace(/#! ?/, '').split(' ');
+	var bin = arr[0].split('/').pop();
+	var arg = arr[1];
+
+	return (bin === 'env' ?
+		arg :
+		bin + (arg ? ' ' + arg : '')
+	);
+};
+
+
+/***/ }),
+
+/***/ 44:
+/***/ (function(module) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var XMLDOMErrorHandler;
+
+  module.exports = XMLDOMErrorHandler = (function() {
+    function XMLDOMErrorHandler() {}
+
+    XMLDOMErrorHandler.prototype.handleError = function(error) {
+      throw new Error(error);
+    };
+
+    return XMLDOMErrorHandler;
+
+  })();
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 50:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+const os = __webpack_require__(87);
+const macosRelease = __webpack_require__(767);
+const winRelease = __webpack_require__(691);
+
+const osName = (platform, release) => {
+	if (!platform && release) {
+		throw new Error('You can\'t specify a `release` without specifying `platform`');
+	}
+
+	platform = platform || os.platform();
+
+	let id;
+
+	if (platform === 'darwin') {
+		if (!release && os.platform() === 'darwin') {
+			release = os.release();
+		}
+
+		const prefix = release ? (Number(release.split('.')[0]) > 15 ? 'macOS' : 'OS X') : 'macOS';
+		id = release ? macosRelease(release).name : '';
+		return prefix + (id ? ' ' + id : '');
+	}
+
+	if (platform === 'linux') {
+		if (!release && os.platform() === 'linux') {
+			release = os.release();
+		}
+
+		id = release ? release.replace(/^(\d+\.\d+).*/, '$1') : '';
+		return 'Linux' + (id ? ' ' + id : '');
+	}
+
+	if (platform === 'win32') {
+		if (!release && os.platform() === 'win32') {
+			release = os.release();
+		}
+
+		id = release ? winRelease(release) : '';
+		return 'Windows' + (id ? ' ' + id : '');
+	}
+
+	return platform;
+};
+
+module.exports = osName;
+
+
+/***/ }),
+
+/***/ 65:
+/***/ (function(module) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  module.exports = {
+    Element: 1,
+    Attribute: 2,
+    Text: 3,
+    CData: 4,
+    EntityReference: 5,
+    EntityDeclaration: 6,
+    ProcessingInstruction: 7,
+    Comment: 8,
+    Document: 9,
+    DocType: 10,
+    DocumentFragment: 11,
+    NotationDeclaration: 12,
+    Declaration: 201,
+    Raw: 202,
+    AttributeDeclaration: 203,
+    ElementDeclaration: 204,
+    Dummy: 205
+  };
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 66:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+const path = __webpack_require__(622);
+const childProcess = __webpack_require__(129);
+const crossSpawn = __webpack_require__(99);
+const stripEof = __webpack_require__(571);
+const npmRunPath = __webpack_require__(222);
+const isStream = __webpack_require__(25);
+const _getStream = __webpack_require__(305);
+const pFinally = __webpack_require__(219);
+const onExit = __webpack_require__(292);
+const errname = __webpack_require__(147);
+const stdio = __webpack_require__(256);
+
+const TEN_MEGABYTES = 1000 * 1000 * 10;
+
+function handleArgs(cmd, args, opts) {
+	let parsed;
+
+	opts = Object.assign({
+		extendEnv: true,
+		env: {}
+	}, opts);
+
+	if (opts.extendEnv) {
+		opts.env = Object.assign({}, process.env, opts.env);
+	}
+
+	if (opts.__winShell === true) {
+		delete opts.__winShell;
+		parsed = {
+			command: cmd,
+			args,
+			options: opts,
+			file: cmd,
+			original: {
+				cmd,
+				args
+			}
+		};
+	} else {
+		parsed = crossSpawn._parse(cmd, args, opts);
+	}
+
+	opts = Object.assign({
+		maxBuffer: TEN_MEGABYTES,
+		buffer: true,
+		stripEof: true,
+		preferLocal: true,
+		localDir: parsed.options.cwd || process.cwd(),
+		encoding: 'utf8',
+		reject: true,
+		cleanup: true
+	}, parsed.options);
+
+	opts.stdio = stdio(opts);
+
+	if (opts.preferLocal) {
+		opts.env = npmRunPath.env(Object.assign({}, opts, {cwd: opts.localDir}));
+	}
+
+	if (opts.detached) {
+		// #115
+		opts.cleanup = false;
+	}
+
+	if (process.platform === 'win32' && path.basename(parsed.command) === 'cmd.exe') {
+		// #116
+		parsed.args.unshift('/q');
+	}
+
+	return {
+		cmd: parsed.command,
+		args: parsed.args,
+		opts,
+		parsed
+	};
+}
+
+function handleInput(spawned, input) {
+	if (input === null || input === undefined) {
+		return;
+	}
+
+	if (isStream(input)) {
+		input.pipe(spawned.stdin);
+	} else {
+		spawned.stdin.end(input);
+	}
+}
+
+function handleOutput(opts, val) {
+	if (val && opts.stripEof) {
+		val = stripEof(val);
+	}
+
+	return val;
+}
+
+function handleShell(fn, cmd, opts) {
+	let file = '/bin/sh';
+	let args = ['-c', cmd];
+
+	opts = Object.assign({}, opts);
+
+	if (process.platform === 'win32') {
+		opts.__winShell = true;
+		file = process.env.comspec || 'cmd.exe';
+		args = ['/s', '/c', `"${cmd}"`];
+		opts.windowsVerbatimArguments = true;
+	}
+
+	if (opts.shell) {
+		file = opts.shell;
+		delete opts.shell;
+	}
+
+	return fn(file, args, opts);
+}
+
+function getStream(process, stream, {encoding, buffer, maxBuffer}) {
+	if (!process[stream]) {
+		return null;
+	}
+
+	let ret;
+
+	if (!buffer) {
+		// TODO: Use `ret = util.promisify(stream.finished)(process[stream]);` when targeting Node.js 10
+		ret = new Promise((resolve, reject) => {
+			process[stream]
+				.once('end', resolve)
+				.once('error', reject);
+		});
+	} else if (encoding) {
+		ret = _getStream(process[stream], {
+			encoding,
+			maxBuffer
+		});
+	} else {
+		ret = _getStream.buffer(process[stream], {maxBuffer});
+	}
+
+	return ret.catch(err => {
+		err.stream = stream;
+		err.message = `${stream} ${err.message}`;
+		throw err;
+	});
+}
+
+function makeError(result, options) {
+	const {stdout, stderr} = result;
+
+	let err = result.error;
+	const {code, signal} = result;
+
+	const {parsed, joinedCmd} = options;
+	const timedOut = options.timedOut || false;
+
+	if (!err) {
+		let output = '';
+
+		if (Array.isArray(parsed.opts.stdio)) {
+			if (parsed.opts.stdio[2] !== 'inherit') {
+				output += output.length > 0 ? stderr : `\n${stderr}`;
+			}
+
+			if (parsed.opts.stdio[1] !== 'inherit') {
+				output += `\n${stdout}`;
+			}
+		} else if (parsed.opts.stdio !== 'inherit') {
+			output = `\n${stderr}${stdout}`;
+		}
+
+		err = new Error(`Command failed: ${joinedCmd}${output}`);
+		err.code = code < 0 ? errname(code) : code;
+	}
+
+	err.stdout = stdout;
+	err.stderr = stderr;
+	err.failed = true;
+	err.signal = signal || null;
+	err.cmd = joinedCmd;
+	err.timedOut = timedOut;
+
+	return err;
+}
+
+function joinCmd(cmd, args) {
+	let joinedCmd = cmd;
+
+	if (Array.isArray(args) && args.length > 0) {
+		joinedCmd += ' ' + args.join(' ');
+	}
+
+	return joinedCmd;
+}
+
+module.exports = (cmd, args, opts) => {
+	const parsed = handleArgs(cmd, args, opts);
+	const {encoding, buffer, maxBuffer} = parsed.opts;
+	const joinedCmd = joinCmd(cmd, args);
+
+	let spawned;
+	try {
+		spawned = childProcess.spawn(parsed.cmd, parsed.args, parsed.opts);
+	} catch (err) {
+		return Promise.reject(err);
+	}
+
+	let removeExitHandler;
+	if (parsed.opts.cleanup) {
+		removeExitHandler = onExit(() => {
+			spawned.kill();
+		});
+	}
+
+	let timeoutId = null;
+	let timedOut = false;
+
+	const cleanup = () => {
+		if (timeoutId) {
+			clearTimeout(timeoutId);
+			timeoutId = null;
+		}
+
+		if (removeExitHandler) {
+			removeExitHandler();
+		}
+	};
+
+	if (parsed.opts.timeout > 0) {
+		timeoutId = setTimeout(() => {
+			timeoutId = null;
+			timedOut = true;
+			spawned.kill(parsed.opts.killSignal);
+		}, parsed.opts.timeout);
+	}
+
+	const processDone = new Promise(resolve => {
+		spawned.on('exit', (code, signal) => {
+			cleanup();
+			resolve({code, signal});
+		});
+
+		spawned.on('error', err => {
+			cleanup();
+			resolve({error: err});
+		});
+
+		if (spawned.stdin) {
+			spawned.stdin.on('error', err => {
+				cleanup();
+				resolve({error: err});
+			});
+		}
+	});
+
+	function destroy() {
+		if (spawned.stdout) {
+			spawned.stdout.destroy();
+		}
+
+		if (spawned.stderr) {
+			spawned.stderr.destroy();
+		}
+	}
+
+	const handlePromise = () => pFinally(Promise.all([
+		processDone,
+		getStream(spawned, 'stdout', {encoding, buffer, maxBuffer}),
+		getStream(spawned, 'stderr', {encoding, buffer, maxBuffer})
+	]).then(arr => {
+		const result = arr[0];
+		result.stdout = arr[1];
+		result.stderr = arr[2];
+
+		if (result.error || result.code !== 0 || result.signal !== null) {
+			const err = makeError(result, {
+				joinedCmd,
+				parsed,
+				timedOut
+			});
+
+			// TODO: missing some timeout logic for killed
+			// https://github.com/nodejs/node/blob/master/lib/child_process.js#L203
+			// err.killed = spawned.killed || killed;
+			err.killed = err.killed || spawned.killed;
+
+			if (!parsed.opts.reject) {
+				return err;
+			}
+
+			throw err;
+		}
+
+		return {
+			stdout: handleOutput(parsed.opts, result.stdout),
+			stderr: handleOutput(parsed.opts, result.stderr),
+			code: 0,
+			failed: false,
+			killed: false,
+			signal: null,
+			cmd: joinedCmd,
+			timedOut: false
+		};
+	}), destroy);
+
+	crossSpawn._enoent.hookChildProcess(spawned, parsed.parsed);
+
+	handleInput(spawned, parsed.opts.input);
+
+	spawned.then = (onfulfilled, onrejected) => handlePromise().then(onfulfilled, onrejected);
+	spawned.catch = onrejected => handlePromise().catch(onrejected);
+
+	return spawned;
+};
+
+// TODO: set `stderr: 'ignore'` when that option is implemented
+module.exports.stdout = (...args) => module.exports(...args).then(x => x.stdout);
+
+// TODO: set `stdout: 'ignore'` when that option is implemented
+module.exports.stderr = (...args) => module.exports(...args).then(x => x.stderr);
+
+module.exports.shell = (cmd, opts) => handleShell(module.exports, cmd, opts);
+
+module.exports.sync = (cmd, args, opts) => {
+	const parsed = handleArgs(cmd, args, opts);
+	const joinedCmd = joinCmd(cmd, args);
+
+	if (isStream(parsed.opts.input)) {
+		throw new TypeError('The `input` option cannot be a stream in sync mode');
+	}
+
+	const result = childProcess.spawnSync(parsed.cmd, parsed.args, parsed.opts);
+	result.code = result.status;
+
+	if (result.error || result.status !== 0 || result.signal !== null) {
+		const err = makeError(result, {
+			joinedCmd,
+			parsed
+		});
+
+		if (!parsed.opts.reject) {
+			return err;
+		}
+
+		throw err;
+	}
+
+	return {
+		stdout: handleOutput(parsed.opts, result.stdout),
+		stderr: handleOutput(parsed.opts, result.stderr),
+		code: 0,
+		failed: false,
+		signal: null,
+		cmd: joinedCmd,
+		timedOut: false
+	};
+};
+
+module.exports.shellSync = (cmd, opts) => handleShell(module.exports.sync, cmd, opts);
+
+
+/***/ }),
+
+/***/ 71:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+var request = __webpack_require__(277);
+var universalUserAgent = __webpack_require__(898);
+
+const VERSION = "4.5.1";
+
+class GraphqlError extends Error {
+  constructor(request, response) {
+    const message = response.data.errors[0].message;
+    super(message);
+    Object.assign(this, response.data);
+    this.name = "GraphqlError";
+    this.request = request; // Maintains proper stack trace (only available on V8)
+
+    /* istanbul ignore next */
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+  }
+
+}
+
+const NON_VARIABLE_OPTIONS = ["method", "baseUrl", "url", "headers", "request", "query", "mediaType"];
+function graphql(request, query, options) {
+  options = typeof query === "string" ? options = Object.assign({
+    query
+  }, options) : options = query;
+  const requestOptions = Object.keys(options).reduce((result, key) => {
+    if (NON_VARIABLE_OPTIONS.includes(key)) {
+      result[key] = options[key];
+      return result;
+    }
+
+    if (!result.variables) {
+      result.variables = {};
+    }
+
+    result.variables[key] = options[key];
+    return result;
+  }, {});
+  return request(requestOptions).then(response => {
+    if (response.data.errors) {
+      throw new GraphqlError(requestOptions, {
+        data: response.data
+      });
+    }
+
+    return response.data.data;
+  });
+}
+
+function withDefaults(request$1, newDefaults) {
+  const newRequest = request$1.defaults(newDefaults);
+
+  const newApi = (query, options) => {
+    return graphql(newRequest, query, options);
+  };
+
+  return Object.assign(newApi, {
+    defaults: withDefaults.bind(null, newRequest),
+    endpoint: request.request.endpoint
+  });
+}
+
+const graphql$1 = withDefaults(request.request, {
+  headers: {
+    "user-agent": `octokit-graphql.js/${VERSION} ${universalUserAgent.getUserAgent()}`
+  },
+  method: "POST",
+  url: "/graphql"
+});
+function withCustomRequest(customRequest) {
+  return withDefaults(customRequest, {
+    method: "POST",
+    url: "/graphql"
+  });
+}
+
+exports.graphql = graphql$1;
+exports.withCustomRequest = withCustomRequest;
+//# sourceMappingURL=index.js.map
+
+
+/***/ }),
+
+/***/ 79:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, XMLCharacterData, XMLComment,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  NodeType = __webpack_require__(65);
+
+  XMLCharacterData = __webpack_require__(245);
+
+  module.exports = XMLComment = (function(superClass) {
+    extend(XMLComment, superClass);
+
+    function XMLComment(parent, text) {
+      XMLComment.__super__.constructor.call(this, parent);
+      if (text == null) {
+        throw new Error("Missing comment text. " + this.debugInfo());
+      }
+      this.name = "#comment";
+      this.type = NodeType.Comment;
+      this.value = this.stringify.comment(text);
+    }
+
+    XMLComment.prototype.clone = function() {
+      return Object.create(this);
+    };
+
+    XMLComment.prototype.toString = function(options) {
+      return this.options.writer.comment(this, this.options.writer.filterOptions(options));
+    };
+
+    return XMLComment;
+
+  })(XMLCharacterData);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 87:
+/***/ (function(module) {
+
+module.exports = require("os");
+
+/***/ }),
+
+/***/ 99:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+const cp = __webpack_require__(129);
+const parse = __webpack_require__(198);
+const enoent = __webpack_require__(21);
+
+function spawn(command, args, options) {
+    // Parse the arguments
+    const parsed = parse(command, args, options);
+
+    // Spawn the child process
+    const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
+
+    // Hook into child process "exit" event to emit an error if the command
+    // does not exists, see: https://github.com/IndigoUnited/node-cross-spawn/issues/16
+    enoent.hookChildProcess(spawned, parsed);
+
+    return spawned;
+}
+
+function spawnSync(command, args, options) {
+    // Parse the arguments
+    const parsed = parse(command, args, options);
+
+    // Spawn the child process
+    const result = cp.spawnSync(parsed.command, parsed.args, parsed.options);
+
+    // Analyze if the command does not exist, see: https://github.com/IndigoUnited/node-cross-spawn/issues/16
+    result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
+
+    return result;
+}
+
+module.exports = spawn;
+module.exports.spawn = spawn;
+module.exports.sync = spawnSync;
+
+module.exports._parse = parse;
+module.exports._enoent = enoent;
+
+
+/***/ }),
+
+/***/ 100:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+module.exports = which
+which.sync = whichSync
+
+var isWindows = process.platform === 'win32' ||
+    process.env.OSTYPE === 'cygwin' ||
+    process.env.OSTYPE === 'msys'
+
+var path = __webpack_require__(622)
+var COLON = isWindows ? ';' : ':'
+var isexe = __webpack_require__(881)
+
+function getNotFoundError (cmd) {
+  var er = new Error('not found: ' + cmd)
+  er.code = 'ENOENT'
+
+  return er
+}
+
+function getPathInfo (cmd, opt) {
+  var colon = opt.colon || COLON
+  var pathEnv = opt.path || process.env.PATH || ''
+  var pathExt = ['']
+
+  pathEnv = pathEnv.split(colon)
+
+  var pathExtExe = ''
+  if (isWindows) {
+    pathEnv.unshift(process.cwd())
+    pathExtExe = (opt.pathExt || process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM')
+    pathExt = pathExtExe.split(colon)
+
+
+    // Always test the cmd itself first.  isexe will check to make sure
+    // it's found in the pathExt set.
+    if (cmd.indexOf('.') !== -1 && pathExt[0] !== '')
+      pathExt.unshift('')
+  }
+
+  // If it has a slash, then we don't bother searching the pathenv.
+  // just check the file itself, and that's it.
+  if (cmd.match(/\//) || isWindows && cmd.match(/\\/))
+    pathEnv = ['']
+
+  return {
+    env: pathEnv,
+    ext: pathExt,
+    extExe: pathExtExe
+  }
+}
+
+function which (cmd, opt, cb) {
+  if (typeof opt === 'function') {
+    cb = opt
+    opt = {}
+  }
+
+  var info = getPathInfo(cmd, opt)
+  var pathEnv = info.env
+  var pathExt = info.ext
+  var pathExtExe = info.extExe
+  var found = []
+
+  ;(function F (i, l) {
+    if (i === l) {
+      if (opt.all && found.length)
+        return cb(null, found)
+      else
+        return cb(getNotFoundError(cmd))
+    }
+
+    var pathPart = pathEnv[i]
+    if (pathPart.charAt(0) === '"' && pathPart.slice(-1) === '"')
+      pathPart = pathPart.slice(1, -1)
+
+    var p = path.join(pathPart, cmd)
+    if (!pathPart && (/^\.[\\\/]/).test(cmd)) {
+      p = cmd.slice(0, 2) + p
+    }
+    ;(function E (ii, ll) {
+      if (ii === ll) return F(i + 1, l)
+      var ext = pathExt[ii]
+      isexe(p + ext, { pathExt: pathExtExe }, function (er, is) {
+        if (!er && is) {
+          if (opt.all)
+            found.push(p + ext)
+          else
+            return cb(null, p + ext)
+        }
+        return E(ii + 1, ll)
+      })
+    })(0, pathExt.length)
+  })(0, pathEnv.length)
+}
+
+function whichSync (cmd, opt) {
+  opt = opt || {}
+
+  var info = getPathInfo(cmd, opt)
+  var pathEnv = info.env
+  var pathExt = info.ext
+  var pathExtExe = info.extExe
+  var found = []
+
+  for (var i = 0, l = pathEnv.length; i < l; i ++) {
+    var pathPart = pathEnv[i]
+    if (pathPart.charAt(0) === '"' && pathPart.slice(-1) === '"')
+      pathPart = pathPart.slice(1, -1)
+
+    var p = path.join(pathPart, cmd)
+    if (!pathPart && /^\.[\\\/]/.test(cmd)) {
+      p = cmd.slice(0, 2) + p
+    }
+    for (var j = 0, ll = pathExt.length; j < ll; j ++) {
+      var cur = p + pathExt[j]
+      var is
+      try {
+        is = isexe.sync(cur, { pathExt: pathExtExe })
+        if (is) {
+          if (opt.all)
+            found.push(cur)
+          else
+            return cur
+        }
+      } catch (ex) {}
+    }
+  }
+
+  if (opt.all && found.length)
+    return found
+
+  if (opt.nothrow)
+    return null
+
+  throw getNotFoundError(cmd)
+}
+
+
+/***/ }),
+
+/***/ 110:
+/***/ (function(module) {
+
+module.exports = eval("require")("encoding");
+
+
+/***/ }),
+
+/***/ 112:
+/***/ (function(module) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  module.exports = {
+    Disconnected: 1,
+    Preceding: 2,
+    Following: 4,
+    Contains: 8,
+    ContainedBy: 16,
+    ImplementationSpecific: 32
+  };
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 117:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  "use strict";
+  var builder, defaults, parser, processors,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  defaults = __webpack_require__(566);
+
+  builder = __webpack_require__(808);
+
+  parser = __webpack_require__(509);
+
+  processors = __webpack_require__(202);
+
+  exports.defaults = defaults.defaults;
+
+  exports.processors = processors;
+
+  exports.ValidationError = (function(superClass) {
+    extend(ValidationError, superClass);
+
+    function ValidationError(message) {
+      this.message = message;
+    }
+
+    return ValidationError;
+
+  })(Error);
+
+  exports.Builder = builder.Builder;
+
+  exports.Parser = parser.Parser;
+
+  exports.parseString = parser.parseString;
+
+  exports.parseStringPromise = parser.parseStringPromise;
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 129:
+/***/ (function(module) {
+
+module.exports = require("child_process");
+
+/***/ }),
+
+/***/ 132:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+const url = __webpack_require__(835);
+function getProxyUrl(reqUrl) {
+    let usingSsl = reqUrl.protocol === 'https:';
+    let proxyUrl;
+    if (checkBypass(reqUrl)) {
+        return proxyUrl;
+    }
+    let proxyVar;
+    if (usingSsl) {
+        proxyVar = process.env['https_proxy'] || process.env['HTTPS_PROXY'];
+    }
+    else {
+        proxyVar = process.env['http_proxy'] || process.env['HTTP_PROXY'];
+    }
+    if (proxyVar) {
+        proxyUrl = url.parse(proxyVar);
+    }
+    return proxyUrl;
+}
+exports.getProxyUrl = getProxyUrl;
+function checkBypass(reqUrl) {
+    if (!reqUrl.hostname) {
+        return false;
+    }
+    let noProxy = process.env['no_proxy'] || process.env['NO_PROXY'] || '';
+    if (!noProxy) {
+        return false;
+    }
+    // Determine the request port
+    let reqPort;
+    if (reqUrl.port) {
+        reqPort = Number(reqUrl.port);
+    }
+    else if (reqUrl.protocol === 'http:') {
+        reqPort = 80;
+    }
+    else if (reqUrl.protocol === 'https:') {
+        reqPort = 443;
+    }
+    // Format the request hostname and hostname with port
+    let upperReqHosts = [reqUrl.hostname.toUpperCase()];
+    if (typeof reqPort === 'number') {
+        upperReqHosts.push(`${upperReqHosts[0]}:${reqPort}`);
+    }
+    // Compare request host against noproxy
+    for (let upperNoProxyItem of noProxy
+        .split(',')
+        .map(x => x.trim().toUpperCase())
+        .filter(x => x)) {
+        if (upperReqHosts.some(x => x === upperNoProxyItem)) {
+            return true;
+        }
+    }
+    return false;
+}
+exports.checkBypass = checkBypass;
+
+
+/***/ }),
+
+/***/ 133:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var XMLStringWriter, XMLWriterBase,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  XMLWriterBase = __webpack_require__(476);
+
+  module.exports = XMLStringWriter = (function(superClass) {
+    extend(XMLStringWriter, superClass);
+
+    function XMLStringWriter(options) {
+      XMLStringWriter.__super__.constructor.call(this, options);
+    }
+
+    XMLStringWriter.prototype.document = function(doc, options) {
+      var child, i, len, r, ref;
+      options = this.filterOptions(options);
+      r = '';
+      ref = doc.children;
+      for (i = 0, len = ref.length; i < len; i++) {
+        child = ref[i];
+        r += this.writeChildNode(child, options, 0);
+      }
+      if (options.pretty && r.slice(-options.newline.length) === options.newline) {
+        r = r.slice(0, -options.newline.length);
+      }
+      return r;
+    };
+
+    return XMLStringWriter;
+
+  })(XMLWriterBase);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 135:
 /***/ (function(__unusedmodule, exports) {
 
 "use strict";
@@ -1246,35 +2982,97 @@ exports.restEndpointMethods = restEndpointMethods;
 
 /***/ }),
 
-/***/ 44:
-/***/ (function(__unusedmodule, exports) {
+/***/ 147:
+/***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
 
+// Older verions of Node.js might not have `util.getSystemErrorName()`.
+// In that case, fall back to a deprecated internal.
+const util = __webpack_require__(669);
 
-Object.defineProperty(exports, '__esModule', { value: true });
+let uv;
 
-class Deprecation extends Error {
-  constructor(message) {
-    super(message); // Maintains proper stack trace (only available on V8)
+if (typeof util.getSystemErrorName === 'function') {
+	module.exports = util.getSystemErrorName;
+} else {
+	try {
+		uv = process.binding('uv');
 
-    /* istanbul ignore next */
+		if (typeof uv.errname !== 'function') {
+			throw new TypeError('uv.errname is not a function');
+		}
+	} catch (err) {
+		console.error('execa/lib/errname: unable to establish process.binding(\'uv\')', err);
+		uv = null;
+	}
 
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
-
-    this.name = 'Deprecation';
-  }
-
+	module.exports = code => errname(uv, code);
 }
 
-exports.Deprecation = Deprecation;
+// Used for testing the fallback behavior
+module.exports.__test__ = errname;
+
+function errname(uv, code) {
+	if (uv) {
+		return uv.errname(code);
+	}
+
+	if (!(code < 0)) {
+		throw new Error('err >= 0');
+	}
+
+	return `Unknown system error ${code}`;
+}
+
 
 
 /***/ }),
 
-/***/ 46:
+/***/ 148:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getOctokit = exports.context = void 0;
+const Context = __importStar(__webpack_require__(390));
+const utils_1 = __webpack_require__(363);
+exports.context = new Context.Context();
+/**
+ * Returns a hydrated octokit ready to use for GitHub Actions
+ *
+ * @param     token    the repo PAT or GITHUB_TOKEN
+ * @param     options  other options to set
+ */
+function getOctokit(token, options) {
+    return new utils_1.GitHub(utils_1.getOctokitOptions(token, options));
+}
+exports.getOctokit = getOctokit;
+//# sourceMappingURL=github.js.map
+
+/***/ }),
+
+/***/ 151:
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
@@ -1291,217 +3089,69 @@ exports.Deprecation = Deprecation;
 
 /***/ }),
 
-/***/ 49:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, '__esModule', { value: true });
-
-var universalUserAgent = __webpack_require__(922);
-var beforeAfterHook = __webpack_require__(595);
-var request = __webpack_require__(339);
-var graphql = __webpack_require__(911);
-var authToken = __webpack_require__(475);
-
-function _defineProperty(obj, key, value) {
-  if (key in obj) {
-    Object.defineProperty(obj, key, {
-      value: value,
-      enumerable: true,
-      configurable: true,
-      writable: true
-    });
-  } else {
-    obj[key] = value;
-  }
-
-  return obj;
-}
-
-function ownKeys(object, enumerableOnly) {
-  var keys = Object.keys(object);
-
-  if (Object.getOwnPropertySymbols) {
-    var symbols = Object.getOwnPropertySymbols(object);
-    if (enumerableOnly) symbols = symbols.filter(function (sym) {
-      return Object.getOwnPropertyDescriptor(object, sym).enumerable;
-    });
-    keys.push.apply(keys, symbols);
-  }
-
-  return keys;
-}
-
-function _objectSpread2(target) {
-  for (var i = 1; i < arguments.length; i++) {
-    var source = arguments[i] != null ? arguments[i] : {};
-
-    if (i % 2) {
-      ownKeys(Object(source), true).forEach(function (key) {
-        _defineProperty(target, key, source[key]);
-      });
-    } else if (Object.getOwnPropertyDescriptors) {
-      Object.defineProperties(target, Object.getOwnPropertyDescriptors(source));
-    } else {
-      ownKeys(Object(source)).forEach(function (key) {
-        Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key));
-      });
-    }
-  }
-
-  return target;
-}
-
-const VERSION = "3.1.0";
-
-class Octokit {
-  constructor(options = {}) {
-    const hook = new beforeAfterHook.Collection();
-    const requestDefaults = {
-      baseUrl: request.request.endpoint.DEFAULTS.baseUrl,
-      headers: {},
-      request: Object.assign({}, options.request, {
-        hook: hook.bind(null, "request")
-      }),
-      mediaType: {
-        previews: [],
-        format: ""
-      }
-    }; // prepend default user agent with `options.userAgent` if set
-
-    requestDefaults.headers["user-agent"] = [options.userAgent, `octokit-core.js/${VERSION} ${universalUserAgent.getUserAgent()}`].filter(Boolean).join(" ");
-
-    if (options.baseUrl) {
-      requestDefaults.baseUrl = options.baseUrl;
-    }
-
-    if (options.previews) {
-      requestDefaults.mediaType.previews = options.previews;
-    }
-
-    if (options.timeZone) {
-      requestDefaults.headers["time-zone"] = options.timeZone;
-    }
-
-    this.request = request.request.defaults(requestDefaults);
-    this.graphql = graphql.withCustomRequest(this.request).defaults(_objectSpread2(_objectSpread2({}, requestDefaults), {}, {
-      baseUrl: requestDefaults.baseUrl.replace(/\/api\/v3$/, "/api")
-    }));
-    this.log = Object.assign({
-      debug: () => {},
-      info: () => {},
-      warn: console.warn.bind(console),
-      error: console.error.bind(console)
-    }, options.log);
-    this.hook = hook; // (1) If neither `options.authStrategy` nor `options.auth` are set, the `octokit` instance
-    //     is unauthenticated. The `this.auth()` method is a no-op and no request hook is registred.
-    // (2) If only `options.auth` is set, use the default token authentication strategy.
-    // (3) If `options.authStrategy` is set then use it and pass in `options.auth`. Always pass own request as many strategies accept a custom request instance.
-    // TODO: type `options.auth` based on `options.authStrategy`.
-
-    if (!options.authStrategy) {
-      if (!options.auth) {
-        // (1)
-        this.auth = async () => ({
-          type: "unauthenticated"
-        });
-      } else {
-        // (2)
-        const auth = authToken.createTokenAuth(options.auth); // @ts-ignore  ¯\_(ツ)_/¯
-
-        hook.wrap("request", auth.hook);
-        this.auth = auth;
-      }
-    } else {
-      const auth = options.authStrategy(Object.assign({
-        request: this.request
-      }, options.auth)); // @ts-ignore  ¯\_(ツ)_/¯
-
-      hook.wrap("request", auth.hook);
-      this.auth = auth;
-    } // apply plugins
-    // https://stackoverflow.com/a/16345172
-
-
-    const classConstructor = this.constructor;
-    classConstructor.plugins.forEach(plugin => {
-      Object.assign(this, plugin(this, options));
-    });
-  }
-
-  static defaults(defaults) {
-    const OctokitWithDefaults = class extends this {
-      constructor(...args) {
-        const options = args[0] || {};
-
-        if (typeof defaults === "function") {
-          super(defaults(options));
-          return;
-        }
-
-        super(Object.assign({}, defaults, options, options.userAgent && defaults.userAgent ? {
-          userAgent: `${options.userAgent} ${defaults.userAgent}`
-        } : null));
-      }
-
-    };
-    return OctokitWithDefaults;
-  }
-  /**
-   * Attach a plugin (or many) to your Octokit instance.
-   *
-   * @example
-   * const API = Octokit.plugin(plugin1, plugin2, plugin3, ...)
-   */
-
-
-  static plugin(...newPlugins) {
-    var _a;
-
-    const currentPlugins = this.plugins;
-    const NewOctokit = (_a = class extends this {}, _a.plugins = currentPlugins.concat(newPlugins.filter(plugin => !currentPlugins.includes(plugin))), _a);
-    return NewOctokit;
-  }
-
-}
-Octokit.VERSION = VERSION;
-Octokit.plugins = [];
-
-exports.Octokit = Octokit;
-//# sourceMappingURL=index.js.map
-
-
-/***/ }),
-
-/***/ 51:
-/***/ (function(module) {
+/***/ 153:
+/***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
-  var XMLDOMStringList;
+  var XMLDOMConfiguration, XMLDOMErrorHandler, XMLDOMStringList;
 
-  module.exports = XMLDOMStringList = (function() {
-    function XMLDOMStringList(arr) {
-      this.arr = arr || [];
+  XMLDOMErrorHandler = __webpack_require__(44);
+
+  XMLDOMStringList = __webpack_require__(417);
+
+  module.exports = XMLDOMConfiguration = (function() {
+    function XMLDOMConfiguration() {
+      var clonedSelf;
+      this.defaultParams = {
+        "canonical-form": false,
+        "cdata-sections": false,
+        "comments": false,
+        "datatype-normalization": false,
+        "element-content-whitespace": true,
+        "entities": true,
+        "error-handler": new XMLDOMErrorHandler(),
+        "infoset": true,
+        "validate-if-schema": false,
+        "namespaces": true,
+        "namespace-declarations": true,
+        "normalize-characters": false,
+        "schema-location": '',
+        "schema-type": '',
+        "split-cdata-sections": true,
+        "validate": false,
+        "well-formed": true
+      };
+      this.params = clonedSelf = Object.create(this.defaultParams);
     }
 
-    Object.defineProperty(XMLDOMStringList.prototype, 'length', {
+    Object.defineProperty(XMLDOMConfiguration.prototype, 'parameterNames', {
       get: function() {
-        return this.arr.length;
+        return new XMLDOMStringList(Object.keys(this.defaultParams));
       }
     });
 
-    XMLDOMStringList.prototype.item = function(index) {
-      return this.arr[index] || null;
+    XMLDOMConfiguration.prototype.getParameter = function(name) {
+      if (this.params.hasOwnProperty(name)) {
+        return this.params[name];
+      } else {
+        return null;
+      }
     };
 
-    XMLDOMStringList.prototype.contains = function(str) {
-      return this.arr.indexOf(str) !== -1;
+    XMLDOMConfiguration.prototype.canSetParameter = function(name, value) {
+      return true;
     };
 
-    return XMLDOMStringList;
+    XMLDOMConfiguration.prototype.setParameter = function(name, value) {
+      if (value != null) {
+        return this.params[name] = value;
+      } else {
+        return delete this.params[name];
+      }
+    };
+
+    return XMLDOMConfiguration;
 
   })();
 
@@ -1510,165 +3160,432 @@ exports.Octokit = Octokit;
 
 /***/ }),
 
-/***/ 55:
+/***/ 154:
+/***/ (function(module) {
+
+"use strict";
+
+
+/*!
+ * isobject <https://github.com/jonschlinkert/isobject>
+ *
+ * Copyright (c) 2014-2017, Jon Schlinkert.
+ * Released under the MIT License.
+ */
+
+function isObject(val) {
+  return val != null && typeof val === 'object' && Array.isArray(val) === false;
+}
+
+/*!
+ * is-plain-object <https://github.com/jonschlinkert/is-plain-object>
+ *
+ * Copyright (c) 2014-2017, Jon Schlinkert.
+ * Released under the MIT License.
+ */
+
+function isObjectObject(o) {
+  return isObject(o) === true
+    && Object.prototype.toString.call(o) === '[object Object]';
+}
+
+function isPlainObject(o) {
+  var ctor,prot;
+
+  if (isObjectObject(o) === false) return false;
+
+  // If has modified constructor
+  ctor = o.constructor;
+  if (typeof ctor !== 'function') return false;
+
+  // If has modified prototype
+  prot = ctor.prototype;
+  if (isObjectObject(prot) === false) return false;
+
+  // If constructor does not have an Object-specific method
+  if (prot.hasOwnProperty('isPrototypeOf') === false) {
+    return false;
+  }
+
+  // Most likely a plain Object
+  return true;
+}
+
+module.exports = isPlainObject;
+
+
+/***/ }),
+
+/***/ 171:
+/***/ (function(module) {
+
+module.exports = register
+
+function register (state, name, method, options) {
+  if (typeof method !== 'function') {
+    throw new Error('method for before hook must be a function')
+  }
+
+  if (!options) {
+    options = {}
+  }
+
+  if (Array.isArray(name)) {
+    return name.reverse().reduce(function (callback, name) {
+      return register.bind(null, state, name, callback, options)
+    }, method)()
+  }
+
+  return Promise.resolve()
+    .then(function () {
+      if (!state.registry[name]) {
+        return method(options)
+      }
+
+      return (state.registry[name]).reduce(function (method, registered) {
+        return registered.hook.bind(null, method, options)
+      }, method)()
+    })
+}
+
+
+/***/ }),
+
+/***/ 177:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
-  var XMLCharacterData, XMLNode,
+  var NodeType, XMLCharacterData, XMLProcessingInstruction,
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  XMLNode = __webpack_require__(828);
+  NodeType = __webpack_require__(65);
 
-  module.exports = XMLCharacterData = (function(superClass) {
-    extend(XMLCharacterData, superClass);
+  XMLCharacterData = __webpack_require__(245);
 
-    function XMLCharacterData(parent) {
-      XMLCharacterData.__super__.constructor.call(this, parent);
-      this.value = '';
+  module.exports = XMLProcessingInstruction = (function(superClass) {
+    extend(XMLProcessingInstruction, superClass);
+
+    function XMLProcessingInstruction(parent, target, value) {
+      XMLProcessingInstruction.__super__.constructor.call(this, parent);
+      if (target == null) {
+        throw new Error("Missing instruction target. " + this.debugInfo());
+      }
+      this.type = NodeType.ProcessingInstruction;
+      this.target = this.stringify.insTarget(target);
+      this.name = this.target;
+      if (value) {
+        this.value = this.stringify.insValue(value);
+      }
     }
 
-    Object.defineProperty(XMLCharacterData.prototype, 'data', {
-      get: function() {
-        return this.value;
-      },
-      set: function(value) {
-        return this.value = value || '';
-      }
-    });
-
-    Object.defineProperty(XMLCharacterData.prototype, 'length', {
-      get: function() {
-        return this.value.length;
-      }
-    });
-
-    Object.defineProperty(XMLCharacterData.prototype, 'textContent', {
-      get: function() {
-        return this.value;
-      },
-      set: function(value) {
-        return this.value = value || '';
-      }
-    });
-
-    XMLCharacterData.prototype.clone = function() {
+    XMLProcessingInstruction.prototype.clone = function() {
       return Object.create(this);
     };
 
-    XMLCharacterData.prototype.substringData = function(offset, count) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    XMLProcessingInstruction.prototype.toString = function(options) {
+      return this.options.writer.processingInstruction(this, this.options.writer.filterOptions(options));
     };
 
-    XMLCharacterData.prototype.appendData = function(arg) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLCharacterData.prototype.insertData = function(offset, arg) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLCharacterData.prototype.deleteData = function(offset, count) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLCharacterData.prototype.replaceData = function(offset, count, arg) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLCharacterData.prototype.isEqualNode = function(node) {
-      if (!XMLCharacterData.__super__.isEqualNode.apply(this, arguments).isEqualNode(node)) {
+    XMLProcessingInstruction.prototype.isEqualNode = function(node) {
+      if (!XMLProcessingInstruction.__super__.isEqualNode.apply(this, arguments).isEqualNode(node)) {
         return false;
       }
-      if (node.data !== this.data) {
+      if (node.target !== this.target) {
         return false;
       }
       return true;
     };
 
-    return XMLCharacterData;
+    return XMLProcessingInstruction;
 
-  })(XMLNode);
+  })(XMLCharacterData);
 
 }).call(this);
 
 
 /***/ }),
 
-/***/ 59:
-/***/ (function(module) {
+/***/ 183:
+/***/ (function(module, __unusedexports, __webpack_require__) {
 
-module.exports = require("assert");
+var once = __webpack_require__(870);
+
+var noop = function() {};
+
+var isRequest = function(stream) {
+	return stream.setHeader && typeof stream.abort === 'function';
+};
+
+var isChildProcess = function(stream) {
+	return stream.stdio && Array.isArray(stream.stdio) && stream.stdio.length === 3
+};
+
+var eos = function(stream, opts, callback) {
+	if (typeof opts === 'function') return eos(stream, null, opts);
+	if (!opts) opts = {};
+
+	callback = once(callback || noop);
+
+	var ws = stream._writableState;
+	var rs = stream._readableState;
+	var readable = opts.readable || (opts.readable !== false && stream.readable);
+	var writable = opts.writable || (opts.writable !== false && stream.writable);
+	var cancelled = false;
+
+	var onlegacyfinish = function() {
+		if (!stream.writable) onfinish();
+	};
+
+	var onfinish = function() {
+		writable = false;
+		if (!readable) callback.call(stream);
+	};
+
+	var onend = function() {
+		readable = false;
+		if (!writable) callback.call(stream);
+	};
+
+	var onexit = function(exitCode) {
+		callback.call(stream, exitCode ? new Error('exited with error code: ' + exitCode) : null);
+	};
+
+	var onerror = function(err) {
+		callback.call(stream, err);
+	};
+
+	var onclose = function() {
+		process.nextTick(onclosenexttick);
+	};
+
+	var onclosenexttick = function() {
+		if (cancelled) return;
+		if (readable && !(rs && (rs.ended && !rs.destroyed))) return callback.call(stream, new Error('premature close'));
+		if (writable && !(ws && (ws.ended && !ws.destroyed))) return callback.call(stream, new Error('premature close'));
+	};
+
+	var onrequest = function() {
+		stream.req.on('finish', onfinish);
+	};
+
+	if (isRequest(stream)) {
+		stream.on('complete', onfinish);
+		stream.on('abort', onclose);
+		if (stream.req) onrequest();
+		else stream.on('request', onrequest);
+	} else if (writable && !ws) { // legacy streams
+		stream.on('end', onlegacyfinish);
+		stream.on('close', onlegacyfinish);
+	}
+
+	if (isChildProcess(stream)) stream.on('exit', onexit);
+
+	stream.on('end', onend);
+	stream.on('finish', onfinish);
+	if (opts.error !== false) stream.on('error', onerror);
+	stream.on('close', onclose);
+
+	return function() {
+		cancelled = true;
+		stream.removeListener('complete', onfinish);
+		stream.removeListener('abort', onclose);
+		stream.removeListener('request', onrequest);
+		if (stream.req) stream.req.removeListener('finish', onfinish);
+		stream.removeListener('end', onlegacyfinish);
+		stream.removeListener('close', onlegacyfinish);
+		stream.removeListener('finish', onfinish);
+		stream.removeListener('exit', onexit);
+		stream.removeListener('end', onend);
+		stream.removeListener('error', onerror);
+		stream.removeListener('close', onclose);
+	};
+};
+
+module.exports = eos;
+
 
 /***/ }),
 
-/***/ 60:
+/***/ 198:
 /***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+const path = __webpack_require__(622);
+const niceTry = __webpack_require__(23);
+const resolveCommand = __webpack_require__(386);
+const escape = __webpack_require__(597);
+const readShebang = __webpack_require__(983);
+const semver = __webpack_require__(806);
+
+const isWin = process.platform === 'win32';
+const isExecutableRegExp = /\.(?:com|exe)$/i;
+const isCmdShimRegExp = /node_modules[\\/].bin[\\/][^\\/]+\.cmd$/i;
+
+// `options.shell` is supported in Node ^4.8.0, ^5.7.0 and >= 6.0.0
+const supportsShellOption = niceTry(() => semver.satisfies(process.version, '^4.8.0 || ^5.7.0 || >= 6.0.0', true)) || false;
+
+function detectShebang(parsed) {
+    parsed.file = resolveCommand(parsed);
+
+    const shebang = parsed.file && readShebang(parsed.file);
+
+    if (shebang) {
+        parsed.args.unshift(parsed.file);
+        parsed.command = shebang;
+
+        return resolveCommand(parsed);
+    }
+
+    return parsed.file;
+}
+
+function parseNonShell(parsed) {
+    if (!isWin) {
+        return parsed;
+    }
+
+    // Detect & add support for shebangs
+    const commandFile = detectShebang(parsed);
+
+    // We don't need a shell if the command filename is an executable
+    const needsShell = !isExecutableRegExp.test(commandFile);
+
+    // If a shell is required, use cmd.exe and take care of escaping everything correctly
+    // Note that `forceShell` is an hidden option used only in tests
+    if (parsed.options.forceShell || needsShell) {
+        // Need to double escape meta chars if the command is a cmd-shim located in `node_modules/.bin/`
+        // The cmd-shim simply calls execute the package bin file with NodeJS, proxying any argument
+        // Because the escape of metachars with ^ gets interpreted when the cmd.exe is first called,
+        // we need to double escape them
+        const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
+
+        // Normalize posix paths into OS compatible paths (e.g.: foo/bar -> foo\bar)
+        // This is necessary otherwise it will always fail with ENOENT in those cases
+        parsed.command = path.normalize(parsed.command);
+
+        // Escape command & arguments
+        parsed.command = escape.command(parsed.command);
+        parsed.args = parsed.args.map((arg) => escape.argument(arg, needsDoubleEscapeMetaChars));
+
+        const shellCommand = [parsed.command].concat(parsed.args).join(' ');
+
+        parsed.args = ['/d', '/s', '/c', `"${shellCommand}"`];
+        parsed.command = process.env.comspec || 'cmd.exe';
+        parsed.options.windowsVerbatimArguments = true; // Tell node's spawn that the arguments are already escaped
+    }
+
+    return parsed;
+}
+
+function parseShell(parsed) {
+    // If node supports the shell option, there's no need to mimic its behavior
+    if (supportsShellOption) {
+        return parsed;
+    }
+
+    // Mimic node shell option
+    // See https://github.com/nodejs/node/blob/b9f6a2dc059a1062776133f3d4fd848c4da7d150/lib/child_process.js#L335
+    const shellCommand = [parsed.command].concat(parsed.args).join(' ');
+
+    if (isWin) {
+        parsed.command = typeof parsed.options.shell === 'string' ? parsed.options.shell : process.env.comspec || 'cmd.exe';
+        parsed.args = ['/d', '/s', '/c', `"${shellCommand}"`];
+        parsed.options.windowsVerbatimArguments = true; // Tell node's spawn that the arguments are already escaped
+    } else {
+        if (typeof parsed.options.shell === 'string') {
+            parsed.command = parsed.options.shell;
+        } else if (process.platform === 'android') {
+            parsed.command = '/system/bin/sh';
+        } else {
+            parsed.command = '/bin/sh';
+        }
+
+        parsed.args = ['-c', shellCommand];
+    }
+
+    return parsed;
+}
+
+function parse(command, args, options) {
+    // Normalize arguments, similar to nodejs
+    if (args && !Array.isArray(args)) {
+        options = args;
+        args = null;
+    }
+
+    args = args ? args.slice(0) : []; // Clone array to avoid changing the original
+    options = Object.assign({}, options); // Clone object to avoid changing the original
+
+    // Build our parsed object
+    const parsed = {
+        command,
+        args,
+        options,
+        file: undefined,
+        original: {
+            command,
+            args,
+        },
+    };
+
+    // Delegate further parsing to shell or non-shell
+    return options.shell ? parseShell(parsed) : parseNonShell(parsed);
+}
+
+module.exports = parse;
+
+
+/***/ }),
+
+/***/ 202:
+/***/ (function(__unusedmodule, exports) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
-  var NodeType, XMLDTDAttList, XMLNode,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
+  "use strict";
+  var prefixMatch;
 
-  XMLNode = __webpack_require__(828);
+  prefixMatch = new RegExp(/(?!xmlns)^.*:/);
 
-  NodeType = __webpack_require__(700);
+  exports.normalize = function(str) {
+    return str.toLowerCase();
+  };
 
-  module.exports = XMLDTDAttList = (function(superClass) {
-    extend(XMLDTDAttList, superClass);
+  exports.firstCharLowerCase = function(str) {
+    return str.charAt(0).toLowerCase() + str.slice(1);
+  };
 
-    function XMLDTDAttList(parent, elementName, attributeName, attributeType, defaultValueType, defaultValue) {
-      XMLDTDAttList.__super__.constructor.call(this, parent);
-      if (elementName == null) {
-        throw new Error("Missing DTD element name. " + this.debugInfo());
-      }
-      if (attributeName == null) {
-        throw new Error("Missing DTD attribute name. " + this.debugInfo(elementName));
-      }
-      if (!attributeType) {
-        throw new Error("Missing DTD attribute type. " + this.debugInfo(elementName));
-      }
-      if (!defaultValueType) {
-        throw new Error("Missing DTD attribute default. " + this.debugInfo(elementName));
-      }
-      if (defaultValueType.indexOf('#') !== 0) {
-        defaultValueType = '#' + defaultValueType;
-      }
-      if (!defaultValueType.match(/^(#REQUIRED|#IMPLIED|#FIXED|#DEFAULT)$/)) {
-        throw new Error("Invalid default value type; expected: #REQUIRED, #IMPLIED, #FIXED or #DEFAULT. " + this.debugInfo(elementName));
-      }
-      if (defaultValue && !defaultValueType.match(/^(#FIXED|#DEFAULT)$/)) {
-        throw new Error("Default value only applies to #FIXED or #DEFAULT. " + this.debugInfo(elementName));
-      }
-      this.elementName = this.stringify.name(elementName);
-      this.type = NodeType.AttributeDeclaration;
-      this.attributeName = this.stringify.name(attributeName);
-      this.attributeType = this.stringify.dtdAttType(attributeType);
-      if (defaultValue) {
-        this.defaultValue = this.stringify.dtdAttDefault(defaultValue);
-      }
-      this.defaultValueType = defaultValueType;
+  exports.stripPrefix = function(str) {
+    return str.replace(prefixMatch, '');
+  };
+
+  exports.parseNumbers = function(str) {
+    if (!isNaN(str)) {
+      str = str % 1 === 0 ? parseInt(str, 10) : parseFloat(str);
     }
+    return str;
+  };
 
-    XMLDTDAttList.prototype.toString = function(options) {
-      return this.options.writer.dtdAttList(this, this.options.writer.filterOptions(options));
-    };
-
-    return XMLDTDAttList;
-
-  })(XMLNode);
+  exports.parseBooleans = function(str) {
+    if (/^(?:true|false)$/i.test(str)) {
+      str = str.toLowerCase() === 'true';
+    }
+    return str;
+  };
 
 }).call(this);
 
 
 /***/ }),
 
-/***/ 61:
+/***/ 204:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
-const core = __webpack_require__(357)
+const core = __webpack_require__(827)
 const { spawnSync } = __webpack_require__(129);
 
 module.exports.run = function(command, args) {
@@ -1706,544 +3623,14 @@ module.exports.run = function(command, args) {
 
 /***/ }),
 
-/***/ 73:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-const core = __webpack_require__(357)
-const execCommand = __webpack_require__(61);
-const fs = __webpack_require__(747);
-const xml2js = __webpack_require__(313);
-
-let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
-    core.info("=== getApexTestClass ===");
-    var parser = new xml2js.Parser();
-    var typeTmp = null;
-    var classes = null;
-    var classNameTmp = null;
-    var testClasses = [];
-    var xml = fs.readFileSync(manifestpath, "utf8");
-    var fileContentTmp = null;
-
-    parser.parseString(xml, function (err, result) {
-        for(var i in result.Package.types){
-            typeTmp = result.Package.types[i];
-            if("ApexClass" === typeTmp.name[0]){
-                classes = typeTmp.members;
-            }
-        }
-    });
-
-    if(classes){
-        for(var i = 0; i < classes.length; i++){
-            classNameTmp = classes[i];
-            fileContentTmp = fs.readFileSync(classesPath+"/"+classNameTmp+".cls", "utf8");
-            if(fileContentTmp.toLowerCase().includes("@istest")){
-                testClasses.push(classNameTmp);
-            }
-        }
-    }else{
-        if(defaultTestClass){
-            testClasses.push(defaultTestClass);
-        }
-        
-    }
-    
-    return testClasses.join(",");
-}
-
-let login = function (cert, login){
-    core.info("=== login ===");
-    core.debug('=== Decrypting certificate');
-    execCommand.run('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', cert.certificatePath, '-out', 'server.key', '-base64', '-K', cert.decryptionKey, '-iv', cert.decryptionIV]);
-
-    core.info('==== Authenticating in the target org');
-    const instanceurl = login.orgType === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
-    core.info('Instance URL: ' + instanceurl);
-    execCommand.run('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', login.clientId, '--jwtkeyfile', 'server.key', '--username', login.username, '--setalias', 'sfdc']);
-};
-
-let deploy = function (deploy){
-    core.info("=== deploy ===");
-
-    var manifestsArray = deploy.manifestToDeploy.split(",");
-    var manifestTmp;
-    var testClassesTmp;
-
-    for(var i = 0; i < manifestsArray.length; i++){
-        manifestTmp = manifestsArray[i];
-
-        var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--json'];
-
-        if(deploy.checkonly){
-            core.info("===== CHECH ONLY ====");
-            argsDeploy.push('--checkonly');
-        }
-
-        if(deploy.testlevel == "RunSpecifiedTests"){
-            testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
-
-            core.info("las clases son : "  + testClassesTmp);
-            
-            if(testClassesTmp){
-                argsDeploy.push("--testlevel");
-                argsDeploy.push(deploy.testlevel);
-    
-                argsDeploy.push("--runtests");
-                argsDeploy.push(testClassesTmp);
-            }else{
-                argsDeploy.push("--testlevel");
-                argsDeploy.push("RunLocalTests");
-            }
-        }else{
-            argsDeploy.push("--testlevel");
-            argsDeploy.push(deploy.testlevel);
-        }
-
-        execCommand.run('sfdx', argsDeploy);
-    }
-};
-
-let destructiveDeploy = function (deploy){
-    core.info("=== destructiveDeploy ===");
-    if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
-        core.info('=== Applying destructive changes ===')
-        var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', 'sfdc', '--wait', '10', '-g', '--json'];
-        if (deploy.checkonly) {
-            argsDestructive.push('--checkonly');
-        }
-        execCommand.run('sfdx', argsDestructive);
-    }
-};
-
-let dataFactory = function (deploy){
-    core.info("=== dataFactory ===");
-    if (deploy.dataFactory  && !deploy.checkonly) {
-        core.info('Executing data factory');
-        const apex = executeCommand('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', 'sfdc']);
-    }
-};
-
-
-module.exports.deploy = deploy;
-module.exports.login = login;
-module.exports.destructiveDeploy = destructiveDeploy;
-module.exports.dataFactory = dataFactory;
-
-/***/ }),
-
-/***/ 78:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, XMLNode, XMLRaw,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  NodeType = __webpack_require__(700);
-
-  XMLNode = __webpack_require__(828);
-
-  module.exports = XMLRaw = (function(superClass) {
-    extend(XMLRaw, superClass);
-
-    function XMLRaw(parent, text) {
-      XMLRaw.__super__.constructor.call(this, parent);
-      if (text == null) {
-        throw new Error("Missing raw text. " + this.debugInfo());
-      }
-      this.type = NodeType.Raw;
-      this.value = this.stringify.raw(text);
-    }
-
-    XMLRaw.prototype.clone = function() {
-      return Object.create(this);
-    };
-
-    XMLRaw.prototype.toString = function(options) {
-      return this.options.writer.raw(this, this.options.writer.filterOptions(options));
-    };
-
-    return XMLRaw;
-
-  })(XMLNode);
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 87:
+/***/ 211:
 /***/ (function(module) {
 
-module.exports = require("os");
+module.exports = require("https");
 
 /***/ }),
 
-/***/ 92:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const os = __importStar(__webpack_require__(87));
-/**
- * Commands
- *
- * Command Format:
- *   ::name key=value,key=value::message
- *
- * Examples:
- *   ::warning::This is the message
- *   ::set-env name=MY_VAR::some value
- */
-function issueCommand(command, properties, message) {
-    const cmd = new Command(command, properties, message);
-    process.stdout.write(cmd.toString() + os.EOL);
-}
-exports.issueCommand = issueCommand;
-function issue(name, message = '') {
-    issueCommand(name, {}, message);
-}
-exports.issue = issue;
-const CMD_STRING = '::';
-class Command {
-    constructor(command, properties, message) {
-        if (!command) {
-            command = 'missing.command';
-        }
-        this.command = command;
-        this.properties = properties;
-        this.message = message;
-    }
-    toString() {
-        let cmdStr = CMD_STRING + this.command;
-        if (this.properties && Object.keys(this.properties).length > 0) {
-            cmdStr += ' ';
-            let first = true;
-            for (const key in this.properties) {
-                if (this.properties.hasOwnProperty(key)) {
-                    const val = this.properties[key];
-                    if (val) {
-                        if (first) {
-                            first = false;
-                        }
-                        else {
-                            cmdStr += ',';
-                        }
-                        cmdStr += `${key}=${escapeProperty(val)}`;
-                    }
-                }
-            }
-        }
-        cmdStr += `${CMD_STRING}${escapeData(this.message)}`;
-        return cmdStr;
-    }
-}
-/**
- * Sanitizes an input into a string so it can be passed into issueCommand safely
- * @param input input to sanitize into a string
- */
-function toCommandValue(input) {
-    if (input === null || input === undefined) {
-        return '';
-    }
-    else if (typeof input === 'string' || input instanceof String) {
-        return input;
-    }
-    return JSON.stringify(input);
-}
-exports.toCommandValue = toCommandValue;
-function escapeData(s) {
-    return toCommandValue(s)
-        .replace(/%/g, '%25')
-        .replace(/\r/g, '%0D')
-        .replace(/\n/g, '%0A');
-}
-function escapeProperty(s) {
-    return toCommandValue(s)
-        .replace(/%/g, '%25')
-        .replace(/\r/g, '%0D')
-        .replace(/\n/g, '%0A')
-        .replace(/:/g, '%3A')
-        .replace(/,/g, '%2C');
-}
-//# sourceMappingURL=command.js.map
-
-/***/ }),
-
-/***/ 93:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-module.exports = isexe
-isexe.sync = sync
-
-var fs = __webpack_require__(747)
-
-function isexe (path, options, cb) {
-  fs.stat(path, function (er, stat) {
-    cb(er, er ? false : checkStat(stat, options))
-  })
-}
-
-function sync (path, options) {
-  return checkStat(fs.statSync(path), options)
-}
-
-function checkStat (stat, options) {
-  return stat.isFile() && checkMode(stat, options)
-}
-
-function checkMode (stat, options) {
-  var mod = stat.mode
-  var uid = stat.uid
-  var gid = stat.gid
-
-  var myUid = options.uid !== undefined ?
-    options.uid : process.getuid && process.getuid()
-  var myGid = options.gid !== undefined ?
-    options.gid : process.getgid && process.getgid()
-
-  var u = parseInt('100', 8)
-  var g = parseInt('010', 8)
-  var o = parseInt('001', 8)
-  var ug = u | g
-
-  var ret = (mod & o) ||
-    (mod & g) && gid === myGid ||
-    (mod & u) && uid === myUid ||
-    (mod & ug) && myUid === 0
-
-  return ret
-}
-
-
-/***/ }),
-
-/***/ 102:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDocType, XMLNamedNodeMap, XMLNode, isObject,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  isObject = __webpack_require__(774).isObject;
-
-  XMLNode = __webpack_require__(828);
-
-  NodeType = __webpack_require__(700);
-
-  XMLDTDAttList = __webpack_require__(60);
-
-  XMLDTDEntity = __webpack_require__(777);
-
-  XMLDTDElement = __webpack_require__(188);
-
-  XMLDTDNotation = __webpack_require__(295);
-
-  XMLNamedNodeMap = __webpack_require__(589);
-
-  module.exports = XMLDocType = (function(superClass) {
-    extend(XMLDocType, superClass);
-
-    function XMLDocType(parent, pubID, sysID) {
-      var child, i, len, ref, ref1, ref2;
-      XMLDocType.__super__.constructor.call(this, parent);
-      this.type = NodeType.DocType;
-      if (parent.children) {
-        ref = parent.children;
-        for (i = 0, len = ref.length; i < len; i++) {
-          child = ref[i];
-          if (child.type === NodeType.Element) {
-            this.name = child.name;
-            break;
-          }
-        }
-      }
-      this.documentObject = parent;
-      if (isObject(pubID)) {
-        ref1 = pubID, pubID = ref1.pubID, sysID = ref1.sysID;
-      }
-      if (sysID == null) {
-        ref2 = [pubID, sysID], sysID = ref2[0], pubID = ref2[1];
-      }
-      if (pubID != null) {
-        this.pubID = this.stringify.dtdPubID(pubID);
-      }
-      if (sysID != null) {
-        this.sysID = this.stringify.dtdSysID(sysID);
-      }
-    }
-
-    Object.defineProperty(XMLDocType.prototype, 'entities', {
-      get: function() {
-        var child, i, len, nodes, ref;
-        nodes = {};
-        ref = this.children;
-        for (i = 0, len = ref.length; i < len; i++) {
-          child = ref[i];
-          if ((child.type === NodeType.EntityDeclaration) && !child.pe) {
-            nodes[child.name] = child;
-          }
-        }
-        return new XMLNamedNodeMap(nodes);
-      }
-    });
-
-    Object.defineProperty(XMLDocType.prototype, 'notations', {
-      get: function() {
-        var child, i, len, nodes, ref;
-        nodes = {};
-        ref = this.children;
-        for (i = 0, len = ref.length; i < len; i++) {
-          child = ref[i];
-          if (child.type === NodeType.NotationDeclaration) {
-            nodes[child.name] = child;
-          }
-        }
-        return new XMLNamedNodeMap(nodes);
-      }
-    });
-
-    Object.defineProperty(XMLDocType.prototype, 'publicId', {
-      get: function() {
-        return this.pubID;
-      }
-    });
-
-    Object.defineProperty(XMLDocType.prototype, 'systemId', {
-      get: function() {
-        return this.sysID;
-      }
-    });
-
-    Object.defineProperty(XMLDocType.prototype, 'internalSubset', {
-      get: function() {
-        throw new Error("This DOM method is not implemented." + this.debugInfo());
-      }
-    });
-
-    XMLDocType.prototype.element = function(name, value) {
-      var child;
-      child = new XMLDTDElement(this, name, value);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLDocType.prototype.attList = function(elementName, attributeName, attributeType, defaultValueType, defaultValue) {
-      var child;
-      child = new XMLDTDAttList(this, elementName, attributeName, attributeType, defaultValueType, defaultValue);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLDocType.prototype.entity = function(name, value) {
-      var child;
-      child = new XMLDTDEntity(this, false, name, value);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLDocType.prototype.pEntity = function(name, value) {
-      var child;
-      child = new XMLDTDEntity(this, true, name, value);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLDocType.prototype.notation = function(name, value) {
-      var child;
-      child = new XMLDTDNotation(this, name, value);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLDocType.prototype.toString = function(options) {
-      return this.options.writer.docType(this, this.options.writer.filterOptions(options));
-    };
-
-    XMLDocType.prototype.ele = function(name, value) {
-      return this.element(name, value);
-    };
-
-    XMLDocType.prototype.att = function(elementName, attributeName, attributeType, defaultValueType, defaultValue) {
-      return this.attList(elementName, attributeName, attributeType, defaultValueType, defaultValue);
-    };
-
-    XMLDocType.prototype.ent = function(name, value) {
-      return this.entity(name, value);
-    };
-
-    XMLDocType.prototype.pent = function(name, value) {
-      return this.pEntity(name, value);
-    };
-
-    XMLDocType.prototype.not = function(name, value) {
-      return this.notation(name, value);
-    };
-
-    XMLDocType.prototype.up = function() {
-      return this.root() || this.documentObject;
-    };
-
-    XMLDocType.prototype.isEqualNode = function(node) {
-      if (!XMLDocType.__super__.isEqualNode.apply(this, arguments).isEqualNode(node)) {
-        return false;
-      }
-      if (node.name !== this.name) {
-        return false;
-      }
-      if (node.publicId !== this.publicId) {
-        return false;
-      }
-      if (node.systemId !== this.systemId) {
-        return false;
-      }
-      return true;
-    };
-
-    return XMLDocType;
-
-  })(XMLNode);
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 113:
-/***/ (function(module) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var XMLDOMErrorHandler;
-
-  module.exports = XMLDOMErrorHandler = (function() {
-    function XMLDOMErrorHandler() {}
-
-    XMLDOMErrorHandler.prototype.handleError = function(error) {
-      throw new Error(error);
-    };
-
-    return XMLDOMErrorHandler;
-
-  })();
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 121:
+/***/ 212:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2252,15 +3639,15 @@ function checkMode (stat, options) {
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  ref = __webpack_require__(774), isObject = ref.isObject, isFunction = ref.isFunction, getValue = ref.getValue;
+  ref = __webpack_require__(779), isObject = ref.isObject, isFunction = ref.isFunction, getValue = ref.getValue;
 
-  XMLNode = __webpack_require__(828);
+  XMLNode = __webpack_require__(698);
 
-  NodeType = __webpack_require__(700);
+  NodeType = __webpack_require__(65);
 
-  XMLAttribute = __webpack_require__(329);
+  XMLAttribute = __webpack_require__(883);
 
-  XMLNamedNodeMap = __webpack_require__(589);
+  XMLNamedNodeMap = __webpack_require__(19);
 
   module.exports = XMLElement = (function(superClass) {
     extend(XMLElement, superClass);
@@ -2548,356 +3935,361 @@ function checkMode (stat, options) {
 
 /***/ }),
 
-/***/ 122:
+/***/ 213:
+/***/ (function(module) {
+
+module.exports = require("timers");
+
+/***/ }),
+
+/***/ 215:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const os = __importStar(__webpack_require__(87));
+/**
+ * Commands
+ *
+ * Command Format:
+ *   ::name key=value,key=value::message
+ *
+ * Examples:
+ *   ::warning::This is the message
+ *   ::set-env name=MY_VAR::some value
+ */
+function issueCommand(command, properties, message) {
+    const cmd = new Command(command, properties, message);
+    process.stdout.write(cmd.toString() + os.EOL);
+}
+exports.issueCommand = issueCommand;
+function issue(name, message = '') {
+    issueCommand(name, {}, message);
+}
+exports.issue = issue;
+const CMD_STRING = '::';
+class Command {
+    constructor(command, properties, message) {
+        if (!command) {
+            command = 'missing.command';
+        }
+        this.command = command;
+        this.properties = properties;
+        this.message = message;
+    }
+    toString() {
+        let cmdStr = CMD_STRING + this.command;
+        if (this.properties && Object.keys(this.properties).length > 0) {
+            cmdStr += ' ';
+            let first = true;
+            for (const key in this.properties) {
+                if (this.properties.hasOwnProperty(key)) {
+                    const val = this.properties[key];
+                    if (val) {
+                        if (first) {
+                            first = false;
+                        }
+                        else {
+                            cmdStr += ',';
+                        }
+                        cmdStr += `${key}=${escapeProperty(val)}`;
+                    }
+                }
+            }
+        }
+        cmdStr += `${CMD_STRING}${escapeData(this.message)}`;
+        return cmdStr;
+    }
+}
+/**
+ * Sanitizes an input into a string so it can be passed into issueCommand safely
+ * @param input input to sanitize into a string
+ */
+function toCommandValue(input) {
+    if (input === null || input === undefined) {
+        return '';
+    }
+    else if (typeof input === 'string' || input instanceof String) {
+        return input;
+    }
+    return JSON.stringify(input);
+}
+exports.toCommandValue = toCommandValue;
+function escapeData(s) {
+    return toCommandValue(s)
+        .replace(/%/g, '%25')
+        .replace(/\r/g, '%0D')
+        .replace(/\n/g, '%0A');
+}
+function escapeProperty(s) {
+    return toCommandValue(s)
+        .replace(/%/g, '%25')
+        .replace(/\r/g, '%0D')
+        .replace(/\n/g, '%0A')
+        .replace(/:/g, '%3A')
+        .replace(/,/g, '%2C');
+}
+//# sourceMappingURL=command.js.map
+
+/***/ }),
+
+/***/ 219:
+/***/ (function(module) {
+
+"use strict";
+
+module.exports = (promise, onFinally) => {
+	onFinally = onFinally || (() => {});
+
+	return promise.then(
+		val => new Promise(resolve => {
+			resolve(onFinally());
+		}).then(() => val),
+		err => new Promise(resolve => {
+			resolve(onFinally());
+		}).then(() => {
+			throw err;
+		})
+	);
+};
+
+
+/***/ }),
+
+/***/ 222:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
 
-const os = __webpack_require__(87);
+const path = __webpack_require__(622);
+const pathKey = __webpack_require__(839);
 
-const nameMap = new Map([
-	[19, 'Catalina'],
-	[18, 'Mojave'],
-	[17, 'High Sierra'],
-	[16, 'Sierra'],
-	[15, 'El Capitan'],
-	[14, 'Yosemite'],
-	[13, 'Mavericks'],
-	[12, 'Mountain Lion'],
-	[11, 'Lion'],
-	[10, 'Snow Leopard'],
-	[9, 'Leopard'],
-	[8, 'Tiger'],
-	[7, 'Panther'],
-	[6, 'Jaguar'],
-	[5, 'Puma']
-]);
+module.exports = opts => {
+	opts = Object.assign({
+		cwd: process.cwd(),
+		path: process.env[pathKey()]
+	}, opts);
 
-const macosRelease = release => {
-	release = Number((release || os.release()).split('.')[0]);
-	return {
-		name: nameMap.get(release),
-		version: '10.' + (release - 4)
-	};
+	let prev;
+	let pth = path.resolve(opts.cwd);
+	const ret = [];
+
+	while (prev !== pth) {
+		ret.push(path.join(pth, 'node_modules/.bin'));
+		prev = pth;
+		pth = path.resolve(pth, '..');
+	}
+
+	// ensure the running `node` binary is used
+	ret.push(path.dirname(process.execPath));
+
+	return ret.concat(opts.path).join(path.delimiter);
 };
 
-module.exports = macosRelease;
-// TODO: remove this in the next major version
-module.exports.default = macosRelease;
+module.exports.env = opts => {
+	opts = Object.assign({
+		env: process.env
+	}, opts);
+
+	const env = Object.assign({}, opts.env);
+	const path = pathKey({env});
+
+	opts.path = env[path];
+	env[path] = module.exports(opts);
+
+	return env;
+};
 
 
 /***/ }),
 
-/***/ 129:
-/***/ (function(module) {
-
-module.exports = require("child_process");
-
-/***/ }),
-
-/***/ 130:
+/***/ 241:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
-var fs = __webpack_require__(747)
-var core
-if (process.platform === 'win32' || global.TESTING_WINDOWS) {
-  core = __webpack_require__(361)
-} else {
-  core = __webpack_require__(93)
-}
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, XMLDTDAttList, XMLNode,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
 
-module.exports = isexe
-isexe.sync = sync
+  XMLNode = __webpack_require__(698);
 
-function isexe (path, options, cb) {
-  if (typeof options === 'function') {
-    cb = options
-    options = {}
-  }
+  NodeType = __webpack_require__(65);
 
-  if (!cb) {
-    if (typeof Promise !== 'function') {
-      throw new TypeError('callback not provided')
-    }
+  module.exports = XMLDTDAttList = (function(superClass) {
+    extend(XMLDTDAttList, superClass);
 
-    return new Promise(function (resolve, reject) {
-      isexe(path, options || {}, function (er, is) {
-        if (er) {
-          reject(er)
-        } else {
-          resolve(is)
-        }
-      })
-    })
-  }
-
-  core(path, options || {}, function (er, is) {
-    // ignore EACCES because that just means we aren't allowed to run it
-    if (er) {
-      if (er.code === 'EACCES' || options && options.ignoreErrors) {
-        er = null
-        is = false
+    function XMLDTDAttList(parent, elementName, attributeName, attributeType, defaultValueType, defaultValue) {
+      XMLDTDAttList.__super__.constructor.call(this, parent);
+      if (elementName == null) {
+        throw new Error("Missing DTD element name. " + this.debugInfo());
       }
+      if (attributeName == null) {
+        throw new Error("Missing DTD attribute name. " + this.debugInfo(elementName));
+      }
+      if (!attributeType) {
+        throw new Error("Missing DTD attribute type. " + this.debugInfo(elementName));
+      }
+      if (!defaultValueType) {
+        throw new Error("Missing DTD attribute default. " + this.debugInfo(elementName));
+      }
+      if (defaultValueType.indexOf('#') !== 0) {
+        defaultValueType = '#' + defaultValueType;
+      }
+      if (!defaultValueType.match(/^(#REQUIRED|#IMPLIED|#FIXED|#DEFAULT)$/)) {
+        throw new Error("Invalid default value type; expected: #REQUIRED, #IMPLIED, #FIXED or #DEFAULT. " + this.debugInfo(elementName));
+      }
+      if (defaultValue && !defaultValueType.match(/^(#FIXED|#DEFAULT)$/)) {
+        throw new Error("Default value only applies to #FIXED or #DEFAULT. " + this.debugInfo(elementName));
+      }
+      this.elementName = this.stringify.name(elementName);
+      this.type = NodeType.AttributeDeclaration;
+      this.attributeName = this.stringify.name(attributeName);
+      this.attributeType = this.stringify.dtdAttType(attributeType);
+      if (defaultValue) {
+        this.defaultValue = this.stringify.dtdAttDefault(defaultValue);
+      }
+      this.defaultValueType = defaultValueType;
     }
-    cb(er, is)
-  })
-}
 
-function sync (path, options) {
-  // my kingdom for a filtered catch
-  try {
-    return core.sync(path, options || {})
-  } catch (er) {
-    if (options && options.ignoreErrors || er.code === 'EACCES') {
-      return false
-    } else {
-      throw er
-    }
-  }
-}
+    XMLDTDAttList.prototype.toString = function(options) {
+      return this.options.writer.dtdAttList(this, this.options.writer.filterOptions(options));
+    };
+
+    return XMLDTDAttList;
+
+  })(XMLNode);
+
+}).call(this);
 
 
 /***/ }),
 
-/***/ 133:
+/***/ 245:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var XMLCharacterData, XMLNode,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  XMLNode = __webpack_require__(698);
+
+  module.exports = XMLCharacterData = (function(superClass) {
+    extend(XMLCharacterData, superClass);
+
+    function XMLCharacterData(parent) {
+      XMLCharacterData.__super__.constructor.call(this, parent);
+      this.value = '';
+    }
+
+    Object.defineProperty(XMLCharacterData.prototype, 'data', {
+      get: function() {
+        return this.value;
+      },
+      set: function(value) {
+        return this.value = value || '';
+      }
+    });
+
+    Object.defineProperty(XMLCharacterData.prototype, 'length', {
+      get: function() {
+        return this.value.length;
+      }
+    });
+
+    Object.defineProperty(XMLCharacterData.prototype, 'textContent', {
+      get: function() {
+        return this.value;
+      },
+      set: function(value) {
+        return this.value = value || '';
+      }
+    });
+
+    XMLCharacterData.prototype.clone = function() {
+      return Object.create(this);
+    };
+
+    XMLCharacterData.prototype.substringData = function(offset, count) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLCharacterData.prototype.appendData = function(arg) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLCharacterData.prototype.insertData = function(offset, arg) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLCharacterData.prototype.deleteData = function(offset, count) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLCharacterData.prototype.replaceData = function(offset, count, arg) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLCharacterData.prototype.isEqualNode = function(node) {
+      if (!XMLCharacterData.__super__.isEqualNode.apply(this, arguments).isEqualNode(node)) {
+        return false;
+      }
+      if (node.data !== this.data) {
+        return false;
+      }
+      return true;
+    };
+
+    return XMLCharacterData;
+
+  })(XMLNode);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 249:
 /***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
-  var XMLStringifier,
-    bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
-    hasProp = {}.hasOwnProperty;
+  var XMLDOMImplementation;
 
-  module.exports = XMLStringifier = (function() {
-    function XMLStringifier(options) {
-      this.assertLegalName = bind(this.assertLegalName, this);
-      this.assertLegalChar = bind(this.assertLegalChar, this);
-      var key, ref, value;
-      options || (options = {});
-      this.options = options;
-      if (!this.options.version) {
-        this.options.version = '1.0';
-      }
-      ref = options.stringify || {};
-      for (key in ref) {
-        if (!hasProp.call(ref, key)) continue;
-        value = ref[key];
-        this[key] = value;
-      }
-    }
+  module.exports = XMLDOMImplementation = (function() {
+    function XMLDOMImplementation() {}
 
-    XMLStringifier.prototype.name = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalName('' + val || '');
+    XMLDOMImplementation.prototype.hasFeature = function(feature, version) {
+      return true;
     };
 
-    XMLStringifier.prototype.text = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar(this.textEscape('' + val || ''));
+    XMLDOMImplementation.prototype.createDocumentType = function(qualifiedName, publicId, systemId) {
+      throw new Error("This DOM method is not implemented.");
     };
 
-    XMLStringifier.prototype.cdata = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      val = '' + val || '';
-      val = val.replace(']]>', ']]]]><![CDATA[>');
-      return this.assertLegalChar(val);
+    XMLDOMImplementation.prototype.createDocument = function(namespaceURI, qualifiedName, doctype) {
+      throw new Error("This DOM method is not implemented.");
     };
 
-    XMLStringifier.prototype.comment = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      val = '' + val || '';
-      if (val.match(/--/)) {
-        throw new Error("Comment text cannot contain double-hypen: " + val);
-      }
-      return this.assertLegalChar(val);
+    XMLDOMImplementation.prototype.createHTMLDocument = function(title) {
+      throw new Error("This DOM method is not implemented.");
     };
 
-    XMLStringifier.prototype.raw = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return '' + val || '';
+    XMLDOMImplementation.prototype.getFeature = function(feature, version) {
+      throw new Error("This DOM method is not implemented.");
     };
 
-    XMLStringifier.prototype.attValue = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar(this.attEscape(val = '' + val || ''));
-    };
-
-    XMLStringifier.prototype.insTarget = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar('' + val || '');
-    };
-
-    XMLStringifier.prototype.insValue = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      val = '' + val || '';
-      if (val.match(/\?>/)) {
-        throw new Error("Invalid processing instruction value: " + val);
-      }
-      return this.assertLegalChar(val);
-    };
-
-    XMLStringifier.prototype.xmlVersion = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      val = '' + val || '';
-      if (!val.match(/1\.[0-9]+/)) {
-        throw new Error("Invalid version number: " + val);
-      }
-      return val;
-    };
-
-    XMLStringifier.prototype.xmlEncoding = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      val = '' + val || '';
-      if (!val.match(/^[A-Za-z](?:[A-Za-z0-9._-])*$/)) {
-        throw new Error("Invalid encoding: " + val);
-      }
-      return this.assertLegalChar(val);
-    };
-
-    XMLStringifier.prototype.xmlStandalone = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      if (val) {
-        return "yes";
-      } else {
-        return "no";
-      }
-    };
-
-    XMLStringifier.prototype.dtdPubID = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar('' + val || '');
-    };
-
-    XMLStringifier.prototype.dtdSysID = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar('' + val || '');
-    };
-
-    XMLStringifier.prototype.dtdElementValue = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar('' + val || '');
-    };
-
-    XMLStringifier.prototype.dtdAttType = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar('' + val || '');
-    };
-
-    XMLStringifier.prototype.dtdAttDefault = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar('' + val || '');
-    };
-
-    XMLStringifier.prototype.dtdEntityValue = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar('' + val || '');
-    };
-
-    XMLStringifier.prototype.dtdNData = function(val) {
-      if (this.options.noValidation) {
-        return val;
-      }
-      return this.assertLegalChar('' + val || '');
-    };
-
-    XMLStringifier.prototype.convertAttKey = '@';
-
-    XMLStringifier.prototype.convertPIKey = '?';
-
-    XMLStringifier.prototype.convertTextKey = '#text';
-
-    XMLStringifier.prototype.convertCDataKey = '#cdata';
-
-    XMLStringifier.prototype.convertCommentKey = '#comment';
-
-    XMLStringifier.prototype.convertRawKey = '#raw';
-
-    XMLStringifier.prototype.assertLegalChar = function(str) {
-      var regex, res;
-      if (this.options.noValidation) {
-        return str;
-      }
-      regex = '';
-      if (this.options.version === '1.0') {
-        regex = /[\0-\x08\x0B\f\x0E-\x1F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
-        if (res = str.match(regex)) {
-          throw new Error("Invalid character in string: " + str + " at index " + res.index);
-        }
-      } else if (this.options.version === '1.1') {
-        regex = /[\0\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
-        if (res = str.match(regex)) {
-          throw new Error("Invalid character in string: " + str + " at index " + res.index);
-        }
-      }
-      return str;
-    };
-
-    XMLStringifier.prototype.assertLegalName = function(str) {
-      var regex;
-      if (this.options.noValidation) {
-        return str;
-      }
-      this.assertLegalChar(str);
-      regex = /^([:A-Z_a-z\xC0-\xD6\xD8-\xF6\xF8-\u02FF\u0370-\u037D\u037F-\u1FFF\u200C\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD]|[\uD800-\uDB7F][\uDC00-\uDFFF])([\x2D\.0-:A-Z_a-z\xB7\xC0-\xD6\xD8-\xF6\xF8-\u037D\u037F-\u1FFF\u200C\u200D\u203F\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD]|[\uD800-\uDB7F][\uDC00-\uDFFF])*$/;
-      if (!str.match(regex)) {
-        throw new Error("Invalid character in name");
-      }
-      return str;
-    };
-
-    XMLStringifier.prototype.textEscape = function(str) {
-      var ampregex;
-      if (this.options.noValidation) {
-        return str;
-      }
-      ampregex = this.options.noDoubleEncoding ? /(?!&\S+;)&/g : /&/g;
-      return str.replace(ampregex, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r/g, '&#xD;');
-    };
-
-    XMLStringifier.prototype.attEscape = function(str) {
-      var ampregex;
-      if (this.options.noValidation) {
-        return str;
-      }
-      ampregex = this.options.noDoubleEncoding ? /(?!&\S+;)&/g : /&/g;
-      return str.replace(ampregex, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;').replace(/\t/g, '&#x9;').replace(/\n/g, '&#xA;').replace(/\r/g, '&#xD;');
-    };
-
-    return XMLStringifier;
+    return XMLDOMImplementation;
 
   })();
 
@@ -2906,7 +4298,289 @@ function sync (path, options) {
 
 /***/ }),
 
-/***/ 137:
+/***/ 252:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+module.exports = __webpack_require__(990);
+
+
+/***/ }),
+
+/***/ 253:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, XMLNode, XMLRaw,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  NodeType = __webpack_require__(65);
+
+  XMLNode = __webpack_require__(698);
+
+  module.exports = XMLRaw = (function(superClass) {
+    extend(XMLRaw, superClass);
+
+    function XMLRaw(parent, text) {
+      XMLRaw.__super__.constructor.call(this, parent);
+      if (text == null) {
+        throw new Error("Missing raw text. " + this.debugInfo());
+      }
+      this.type = NodeType.Raw;
+      this.value = this.stringify.raw(text);
+    }
+
+    XMLRaw.prototype.clone = function() {
+      return Object.create(this);
+    };
+
+    XMLRaw.prototype.toString = function(options) {
+      return this.options.writer.raw(this, this.options.writer.filterOptions(options));
+    };
+
+    return XMLRaw;
+
+  })(XMLNode);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 256:
+/***/ (function(module) {
+
+"use strict";
+
+const alias = ['stdin', 'stdout', 'stderr'];
+
+const hasAlias = opts => alias.some(x => Boolean(opts[x]));
+
+module.exports = opts => {
+	if (!opts) {
+		return null;
+	}
+
+	if (opts.stdio && hasAlias(opts)) {
+		throw new Error(`It's not possible to provide \`stdio\` in combination with one of ${alias.map(x => `\`${x}\``).join(', ')}`);
+	}
+
+	if (typeof opts.stdio === 'string') {
+		return opts.stdio;
+	}
+
+	const stdio = opts.stdio || [];
+
+	if (!Array.isArray(stdio)) {
+		throw new TypeError(`Expected \`stdio\` to be of type \`string\` or \`Array\`, got \`${typeof stdio}\``);
+	}
+
+	const result = [];
+	const len = Math.max(stdio.length, alias.length);
+
+	for (let i = 0; i < len; i++) {
+		let value = null;
+
+		if (stdio[i] !== undefined) {
+			value = stdio[i];
+		} else if (opts[alias[i]] !== undefined) {
+			value = opts[alias[i]];
+		}
+
+		result[i] = value;
+	}
+
+	return result;
+};
+
+
+/***/ }),
+
+/***/ 257:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, WriterState, XMLStreamWriter, XMLWriterBase,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  NodeType = __webpack_require__(65);
+
+  XMLWriterBase = __webpack_require__(476);
+
+  WriterState = __webpack_require__(151);
+
+  module.exports = XMLStreamWriter = (function(superClass) {
+    extend(XMLStreamWriter, superClass);
+
+    function XMLStreamWriter(stream, options) {
+      this.stream = stream;
+      XMLStreamWriter.__super__.constructor.call(this, options);
+    }
+
+    XMLStreamWriter.prototype.endline = function(node, options, level) {
+      if (node.isLastRootNode && options.state === WriterState.CloseTag) {
+        return '';
+      } else {
+        return XMLStreamWriter.__super__.endline.call(this, node, options, level);
+      }
+    };
+
+    XMLStreamWriter.prototype.document = function(doc, options) {
+      var child, i, j, k, len, len1, ref, ref1, results;
+      ref = doc.children;
+      for (i = j = 0, len = ref.length; j < len; i = ++j) {
+        child = ref[i];
+        child.isLastRootNode = i === doc.children.length - 1;
+      }
+      options = this.filterOptions(options);
+      ref1 = doc.children;
+      results = [];
+      for (k = 0, len1 = ref1.length; k < len1; k++) {
+        child = ref1[k];
+        results.push(this.writeChildNode(child, options, 0));
+      }
+      return results;
+    };
+
+    XMLStreamWriter.prototype.attribute = function(att, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.attribute.call(this, att, options, level));
+    };
+
+    XMLStreamWriter.prototype.cdata = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.cdata.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.comment = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.comment.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.declaration = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.declaration.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.docType = function(node, options, level) {
+      var child, j, len, ref;
+      level || (level = 0);
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      this.stream.write(this.indent(node, options, level));
+      this.stream.write('<!DOCTYPE ' + node.root().name);
+      if (node.pubID && node.sysID) {
+        this.stream.write(' PUBLIC "' + node.pubID + '" "' + node.sysID + '"');
+      } else if (node.sysID) {
+        this.stream.write(' SYSTEM "' + node.sysID + '"');
+      }
+      if (node.children.length > 0) {
+        this.stream.write(' [');
+        this.stream.write(this.endline(node, options, level));
+        options.state = WriterState.InsideTag;
+        ref = node.children;
+        for (j = 0, len = ref.length; j < len; j++) {
+          child = ref[j];
+          this.writeChildNode(child, options, level + 1);
+        }
+        options.state = WriterState.CloseTag;
+        this.stream.write(']');
+      }
+      options.state = WriterState.CloseTag;
+      this.stream.write(options.spaceBeforeSlash + '>');
+      this.stream.write(this.endline(node, options, level));
+      options.state = WriterState.None;
+      return this.closeNode(node, options, level);
+    };
+
+    XMLStreamWriter.prototype.element = function(node, options, level) {
+      var att, child, childNodeCount, firstChildNode, j, len, name, prettySuppressed, ref, ref1;
+      level || (level = 0);
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      this.stream.write(this.indent(node, options, level) + '<' + node.name);
+      ref = node.attribs;
+      for (name in ref) {
+        if (!hasProp.call(ref, name)) continue;
+        att = ref[name];
+        this.attribute(att, options, level);
+      }
+      childNodeCount = node.children.length;
+      firstChildNode = childNodeCount === 0 ? null : node.children[0];
+      if (childNodeCount === 0 || node.children.every(function(e) {
+        return (e.type === NodeType.Text || e.type === NodeType.Raw) && e.value === '';
+      })) {
+        if (options.allowEmpty) {
+          this.stream.write('>');
+          options.state = WriterState.CloseTag;
+          this.stream.write('</' + node.name + '>');
+        } else {
+          options.state = WriterState.CloseTag;
+          this.stream.write(options.spaceBeforeSlash + '/>');
+        }
+      } else if (options.pretty && childNodeCount === 1 && (firstChildNode.type === NodeType.Text || firstChildNode.type === NodeType.Raw) && (firstChildNode.value != null)) {
+        this.stream.write('>');
+        options.state = WriterState.InsideTag;
+        options.suppressPrettyCount++;
+        prettySuppressed = true;
+        this.writeChildNode(firstChildNode, options, level + 1);
+        options.suppressPrettyCount--;
+        prettySuppressed = false;
+        options.state = WriterState.CloseTag;
+        this.stream.write('</' + node.name + '>');
+      } else {
+        this.stream.write('>' + this.endline(node, options, level));
+        options.state = WriterState.InsideTag;
+        ref1 = node.children;
+        for (j = 0, len = ref1.length; j < len; j++) {
+          child = ref1[j];
+          this.writeChildNode(child, options, level + 1);
+        }
+        options.state = WriterState.CloseTag;
+        this.stream.write(this.indent(node, options, level) + '</' + node.name + '>');
+      }
+      this.stream.write(this.endline(node, options, level));
+      options.state = WriterState.None;
+      return this.closeNode(node, options, level);
+    };
+
+    XMLStreamWriter.prototype.processingInstruction = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.processingInstruction.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.raw = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.raw.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.text = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.text.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.dtdAttList = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.dtdAttList.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.dtdElement = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.dtdElement.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.dtdEntity = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.dtdEntity.call(this, node, options, level));
+    };
+
+    XMLStreamWriter.prototype.dtdNotation = function(node, options, level) {
+      return this.stream.write(XMLStreamWriter.__super__.dtdNotation.call(this, node, options, level));
+    };
+
+    return XMLStreamWriter;
+
+  })(XMLWriterBase);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 264:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -2915,19 +4589,19 @@ function sync (path, options) {
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  isPlainObject = __webpack_require__(774).isPlainObject;
+  isPlainObject = __webpack_require__(779).isPlainObject;
 
-  XMLDOMImplementation = __webpack_require__(688);
+  XMLDOMImplementation = __webpack_require__(249);
 
-  XMLDOMConfiguration = __webpack_require__(264);
+  XMLDOMConfiguration = __webpack_require__(153);
 
-  XMLNode = __webpack_require__(828);
+  XMLNode = __webpack_require__(698);
 
-  NodeType = __webpack_require__(700);
+  NodeType = __webpack_require__(65);
 
-  XMLStringifier = __webpack_require__(133);
+  XMLStringifier = __webpack_require__(925);
 
-  XMLStringWriter = __webpack_require__(982);
+  XMLStringWriter = __webpack_require__(133);
 
   module.exports = XMLDocument = (function(superClass) {
     extend(XMLDocument, superClass);
@@ -3155,7 +4829,2138 @@ function sync (path, options) {
 
 /***/ }),
 
-/***/ 151:
+/***/ 265:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+const core = __webpack_require__(827)
+const execCommand = __webpack_require__(204);
+const fs = __webpack_require__(747);
+const xml2js = __webpack_require__(117);
+
+let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
+    core.info("=== getApexTestClass ===");
+    var parser = new xml2js.Parser();
+    var typeTmp = null;
+    var classes = null;
+    var classNameTmp = null;
+    var testClasses = [];
+    var xml = fs.readFileSync(manifestpath, "utf8");
+    var fileContentTmp = null;
+
+    parser.parseString(xml, function (err, result) {
+        for(var i in result.Package.types){
+            typeTmp = result.Package.types[i];
+            if("ApexClass" === typeTmp.name[0]){
+                classes = typeTmp.members;
+            }
+        }
+    });
+
+    if(classes){
+        for(var i = 0; i < classes.length; i++){
+            classNameTmp = classes[i];
+            fileContentTmp = fs.readFileSync(classesPath+"/"+classNameTmp+".cls", "utf8");
+            if(fileContentTmp.toLowerCase().includes("@istest")){
+                testClasses.push(classNameTmp);
+            }
+        }
+    }else{
+        if(defaultTestClass){
+            testClasses.push(defaultTestClass);
+        }
+        
+    }
+    
+    return testClasses.join(",");
+}
+
+let login = function (cert, login){
+    core.info("=== login ===");
+    core.debug('=== Decrypting certificate');
+    execCommand.run('openssl', ['enc', '-nosalt', '-aes-256-cbc', '-d', '-in', cert.certificatePath, '-out', 'server.key', '-base64', '-K', cert.decryptionKey, '-iv', cert.decryptionIV]);
+
+    core.info('==== Authenticating in the target org');
+    const instanceurl = login.orgType === 'sandbox' ? 'https://test.salesforce.com' : 'https://login.salesforce.com';
+    core.info('Instance URL: ' + instanceurl);
+    execCommand.run('sfdx', ['force:auth:jwt:grant', '--instanceurl', instanceurl, '--clientid', login.clientId, '--jwtkeyfile', 'server.key', '--username', login.username, '--setalias', 'sfdc']);
+};
+
+let deploy = function (deploy){
+    core.info("=== deploy ===");
+
+    var manifestsArray = deploy.manifestToDeploy.split(",");
+    var manifestTmp;
+    var testClassesTmp;
+
+    for(var i = 0; i < manifestsArray.length; i++){
+        manifestTmp = manifestsArray[i];
+
+        var argsDeploy = ['force:source:deploy', '--wait', '10', '--manifest', manifestTmp, '--targetusername', 'sfdc', '--json'];
+
+        if(deploy.checkonly){
+            core.info("===== CHECH ONLY ====");
+            argsDeploy.push('--checkonly');
+        }
+
+        if(deploy.testlevel == "RunSpecifiedTests"){
+            testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
+
+            core.info("las clases son : "  + testClassesTmp);
+            
+            if(testClassesTmp){
+                argsDeploy.push("--testlevel");
+                argsDeploy.push(deploy.testlevel);
+    
+                argsDeploy.push("--runtests");
+                argsDeploy.push(testClassesTmp);
+            }else{
+                argsDeploy.push("--testlevel");
+                argsDeploy.push("RunLocalTests");
+            }
+        }else{
+            argsDeploy.push("--testlevel");
+            argsDeploy.push(deploy.testlevel);
+        }
+
+        execCommand.run('sfdx', argsDeploy);
+    }
+};
+
+let destructiveDeploy = function (deploy){
+    core.info("=== destructiveDeploy ===");
+    if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
+        core.info('=== Applying destructive changes ===')
+        var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', 'sfdc', '--wait', '10', '-g', '--json'];
+        if (deploy.checkonly) {
+            argsDestructive.push('--checkonly');
+        }
+        execCommand.run('sfdx', argsDestructive);
+    }
+};
+
+let dataFactory = function (deploy){
+    core.info("=== dataFactory ===");
+    if (deploy.dataFactory  && !deploy.checkonly) {
+        core.info('Executing data factory');
+        const apex = execCommand.run('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', 'sfdc']);
+    }
+};
+
+
+module.exports.deploy = deploy;
+module.exports.login = login;
+module.exports.destructiveDeploy = destructiveDeploy;
+module.exports.dataFactory = dataFactory;
+
+/***/ }),
+
+/***/ 268:
+/***/ (function(__unusedmodule, exports) {
+
+"use strict";
+
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+async function auth(token) {
+  const tokenType = token.split(/\./).length === 3 ? "app" : /^v\d+\./.test(token) ? "installation" : "oauth";
+  return {
+    type: "token",
+    token: token,
+    tokenType
+  };
+}
+
+/**
+ * Prefix token for usage in the Authorization header
+ *
+ * @param token OAuth token or JSON Web Token
+ */
+function withAuthorizationPrefix(token) {
+  if (token.split(/\./).length === 3) {
+    return `bearer ${token}`;
+  }
+
+  return `token ${token}`;
+}
+
+async function hook(token, request, route, parameters) {
+  const endpoint = request.endpoint.merge(route, parameters);
+  endpoint.headers.authorization = withAuthorizationPrefix(token);
+  return request(endpoint);
+}
+
+const createTokenAuth = function createTokenAuth(token) {
+  if (!token) {
+    throw new Error("[@octokit/auth-token] No token passed to createTokenAuth");
+  }
+
+  if (typeof token !== "string") {
+    throw new Error("[@octokit/auth-token] Token passed to createTokenAuth is not a string");
+  }
+
+  token = token.replace(/^(token|bearer) +/i, "");
+  return Object.assign(auth.bind(null, token), {
+    hook: hook.bind(null, token)
+  });
+};
+
+exports.createTokenAuth = createTokenAuth;
+//# sourceMappingURL=index.js.map
+
+
+/***/ }),
+
+/***/ 277:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
+
+var endpoint = __webpack_require__(754);
+var universalUserAgent = __webpack_require__(898);
+var isPlainObject = _interopDefault(__webpack_require__(154));
+var nodeFetch = _interopDefault(__webpack_require__(770));
+var requestError = __webpack_require__(717);
+
+const VERSION = "5.4.5";
+
+function getBufferResponse(response) {
+  return response.arrayBuffer();
+}
+
+function fetchWrapper(requestOptions) {
+  if (isPlainObject(requestOptions.body) || Array.isArray(requestOptions.body)) {
+    requestOptions.body = JSON.stringify(requestOptions.body);
+  }
+
+  let headers = {};
+  let status;
+  let url;
+  const fetch = requestOptions.request && requestOptions.request.fetch || nodeFetch;
+  return fetch(requestOptions.url, Object.assign({
+    method: requestOptions.method,
+    body: requestOptions.body,
+    headers: requestOptions.headers,
+    redirect: requestOptions.redirect
+  }, requestOptions.request)).then(response => {
+    url = response.url;
+    status = response.status;
+
+    for (const keyAndValue of response.headers) {
+      headers[keyAndValue[0]] = keyAndValue[1];
+    }
+
+    if (status === 204 || status === 205) {
+      return;
+    } // GitHub API returns 200 for HEAD requests
+
+
+    if (requestOptions.method === "HEAD") {
+      if (status < 400) {
+        return;
+      }
+
+      throw new requestError.RequestError(response.statusText, status, {
+        headers,
+        request: requestOptions
+      });
+    }
+
+    if (status === 304) {
+      throw new requestError.RequestError("Not modified", status, {
+        headers,
+        request: requestOptions
+      });
+    }
+
+    if (status >= 400) {
+      return response.text().then(message => {
+        const error = new requestError.RequestError(message, status, {
+          headers,
+          request: requestOptions
+        });
+
+        try {
+          let responseBody = JSON.parse(error.message);
+          Object.assign(error, responseBody);
+          let errors = responseBody.errors; // Assumption `errors` would always be in Array format
+
+          error.message = error.message + ": " + errors.map(JSON.stringify).join(", ");
+        } catch (e) {// ignore, see octokit/rest.js#684
+        }
+
+        throw error;
+      });
+    }
+
+    const contentType = response.headers.get("content-type");
+
+    if (/application\/json/.test(contentType)) {
+      return response.json();
+    }
+
+    if (!contentType || /^text\/|charset=utf-8$/.test(contentType)) {
+      return response.text();
+    }
+
+    return getBufferResponse(response);
+  }).then(data => {
+    return {
+      status,
+      url,
+      headers,
+      data
+    };
+  }).catch(error => {
+    if (error instanceof requestError.RequestError) {
+      throw error;
+    }
+
+    throw new requestError.RequestError(error.message, 500, {
+      headers,
+      request: requestOptions
+    });
+  });
+}
+
+function withDefaults(oldEndpoint, newDefaults) {
+  const endpoint = oldEndpoint.defaults(newDefaults);
+
+  const newApi = function (route, parameters) {
+    const endpointOptions = endpoint.merge(route, parameters);
+
+    if (!endpointOptions.request || !endpointOptions.request.hook) {
+      return fetchWrapper(endpoint.parse(endpointOptions));
+    }
+
+    const request = (route, parameters) => {
+      return fetchWrapper(endpoint.parse(endpoint.merge(route, parameters)));
+    };
+
+    Object.assign(request, {
+      endpoint,
+      defaults: withDefaults.bind(null, endpoint)
+    });
+    return endpointOptions.request.hook(request, endpointOptions);
+  };
+
+  return Object.assign(newApi, {
+    endpoint,
+    defaults: withDefaults.bind(null, endpoint)
+  });
+}
+
+const request = withDefaults(endpoint.endpoint, {
+  headers: {
+    "user-agent": `octokit-request.js/${VERSION} ${universalUserAgent.getUserAgent()}`
+  }
+});
+
+exports.request = request;
+//# sourceMappingURL=index.js.map
+
+
+/***/ }),
+
+/***/ 292:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Note: since nyc uses this module to output coverage, any lines
+// that are in the direct sync flow of nyc's outputCoverage are
+// ignored, since we can never get coverage for them.
+var assert = __webpack_require__(357)
+var signals = __webpack_require__(776)
+var isWin = /^win/i.test(process.platform)
+
+var EE = __webpack_require__(614)
+/* istanbul ignore if */
+if (typeof EE !== 'function') {
+  EE = EE.EventEmitter
+}
+
+var emitter
+if (process.__signal_exit_emitter__) {
+  emitter = process.__signal_exit_emitter__
+} else {
+  emitter = process.__signal_exit_emitter__ = new EE()
+  emitter.count = 0
+  emitter.emitted = {}
+}
+
+// Because this emitter is a global, we have to check to see if a
+// previous version of this library failed to enable infinite listeners.
+// I know what you're about to say.  But literally everything about
+// signal-exit is a compromise with evil.  Get used to it.
+if (!emitter.infinite) {
+  emitter.setMaxListeners(Infinity)
+  emitter.infinite = true
+}
+
+module.exports = function (cb, opts) {
+  assert.equal(typeof cb, 'function', 'a callback must be provided for exit handler')
+
+  if (loaded === false) {
+    load()
+  }
+
+  var ev = 'exit'
+  if (opts && opts.alwaysLast) {
+    ev = 'afterexit'
+  }
+
+  var remove = function () {
+    emitter.removeListener(ev, cb)
+    if (emitter.listeners('exit').length === 0 &&
+        emitter.listeners('afterexit').length === 0) {
+      unload()
+    }
+  }
+  emitter.on(ev, cb)
+
+  return remove
+}
+
+module.exports.unload = unload
+function unload () {
+  if (!loaded) {
+    return
+  }
+  loaded = false
+
+  signals.forEach(function (sig) {
+    try {
+      process.removeListener(sig, sigListeners[sig])
+    } catch (er) {}
+  })
+  process.emit = originalProcessEmit
+  process.reallyExit = originalProcessReallyExit
+  emitter.count -= 1
+}
+
+function emit (event, code, signal) {
+  if (emitter.emitted[event]) {
+    return
+  }
+  emitter.emitted[event] = true
+  emitter.emit(event, code, signal)
+}
+
+// { <signal>: <listener fn>, ... }
+var sigListeners = {}
+signals.forEach(function (sig) {
+  sigListeners[sig] = function listener () {
+    // If there are no other listeners, an exit is coming!
+    // Simplest way: remove us and then re-send the signal.
+    // We know that this will kill the process, so we can
+    // safely emit now.
+    var listeners = process.listeners(sig)
+    if (listeners.length === emitter.count) {
+      unload()
+      emit('exit', null, sig)
+      /* istanbul ignore next */
+      emit('afterexit', null, sig)
+      /* istanbul ignore next */
+      if (isWin && sig === 'SIGHUP') {
+        // "SIGHUP" throws an `ENOSYS` error on Windows,
+        // so use a supported signal instead
+        sig = 'SIGINT'
+      }
+      process.kill(process.pid, sig)
+    }
+  }
+})
+
+module.exports.signals = function () {
+  return signals
+}
+
+module.exports.load = load
+
+var loaded = false
+
+function load () {
+  if (loaded) {
+    return
+  }
+  loaded = true
+
+  // This is the number of onSignalExit's that are in play.
+  // It's important so that we can count the correct number of
+  // listeners on signals, and don't wait for the other one to
+  // handle it instead of us.
+  emitter.count += 1
+
+  signals = signals.filter(function (sig) {
+    try {
+      process.on(sig, sigListeners[sig])
+      return true
+    } catch (er) {
+      return false
+    }
+  })
+
+  process.emit = processEmit
+  process.reallyExit = processReallyExit
+}
+
+var originalProcessReallyExit = process.reallyExit
+function processReallyExit (code) {
+  process.exitCode = code || 0
+  emit('exit', process.exitCode, null)
+  /* istanbul ignore next */
+  emit('afterexit', process.exitCode, null)
+  /* istanbul ignore next */
+  originalProcessReallyExit.call(process, process.exitCode)
+}
+
+var originalProcessEmit = process.emit
+function processEmit (ev, arg) {
+  if (ev === 'exit') {
+    if (arg !== undefined) {
+      process.exitCode = arg
+    }
+    var ret = originalProcessEmit.apply(this, arguments)
+    emit('exit', process.exitCode, null)
+    /* istanbul ignore next */
+    emit('afterexit', process.exitCode, null)
+    return ret
+  } else {
+    return originalProcessEmit.apply(this, arguments)
+  }
+}
+
+
+/***/ }),
+
+/***/ 304:
+/***/ (function(module) {
+
+module.exports = require("string_decoder");
+
+/***/ }),
+
+/***/ 305:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+const pump = __webpack_require__(464);
+const bufferStream = __webpack_require__(314);
+
+class MaxBufferError extends Error {
+	constructor() {
+		super('maxBuffer exceeded');
+		this.name = 'MaxBufferError';
+	}
+}
+
+function getStream(inputStream, options) {
+	if (!inputStream) {
+		return Promise.reject(new Error('Expected a stream'));
+	}
+
+	options = Object.assign({maxBuffer: Infinity}, options);
+
+	const {maxBuffer} = options;
+
+	let stream;
+	return new Promise((resolve, reject) => {
+		const rejectPromise = error => {
+			if (error) { // A null check
+				error.bufferedData = stream.getBufferedValue();
+			}
+			reject(error);
+		};
+
+		stream = pump(inputStream, bufferStream(options), error => {
+			if (error) {
+				rejectPromise(error);
+				return;
+			}
+
+			resolve();
+		});
+
+		stream.on('data', () => {
+			if (stream.getBufferedLength() > maxBuffer) {
+				rejectPromise(new MaxBufferError());
+			}
+		});
+	}).then(() => stream.getBufferedValue());
+}
+
+module.exports = getStream;
+module.exports.buffer = (stream, options) => getStream(stream, Object.assign({}, options, {encoding: 'buffer'}));
+module.exports.array = (stream, options) => getStream(stream, Object.assign({}, options, {array: true}));
+module.exports.MaxBufferError = MaxBufferError;
+
+
+/***/ }),
+
+/***/ 314:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+const {PassThrough} = __webpack_require__(413);
+
+module.exports = options => {
+	options = Object.assign({}, options);
+
+	const {array} = options;
+	let {encoding} = options;
+	const buffer = encoding === 'buffer';
+	let objectMode = false;
+
+	if (array) {
+		objectMode = !(encoding || buffer);
+	} else {
+		encoding = encoding || 'utf8';
+	}
+
+	if (buffer) {
+		encoding = null;
+	}
+
+	let len = 0;
+	const ret = [];
+	const stream = new PassThrough({objectMode});
+
+	if (encoding) {
+		stream.setEncoding(encoding);
+	}
+
+	stream.on('data', chunk => {
+		ret.push(chunk);
+
+		if (objectMode) {
+			len = ret.length;
+		} else {
+			len += chunk.length;
+		}
+	});
+
+	stream.getBufferedValue = () => {
+		if (array) {
+			return ret;
+		}
+
+		return buffer ? Buffer.concat(ret, len) : ret.join('');
+	};
+
+	stream.getBufferedLength = () => len;
+
+	return stream;
+};
+
+
+/***/ }),
+
+/***/ 318:
+/***/ (function(module) {
+
+module.exports = removeHook
+
+function removeHook (state, name, method) {
+  if (!state.registry[name]) {
+    return
+  }
+
+  var index = state.registry[name]
+    .map(function (registered) { return registered.orig })
+    .indexOf(method)
+
+  if (index === -1) {
+    return
+  }
+
+  state.registry[name].splice(index, 1)
+}
+
+
+/***/ }),
+
+/***/ 331:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, XMLDTDNotation, XMLNode,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  XMLNode = __webpack_require__(698);
+
+  NodeType = __webpack_require__(65);
+
+  module.exports = XMLDTDNotation = (function(superClass) {
+    extend(XMLDTDNotation, superClass);
+
+    function XMLDTDNotation(parent, name, value) {
+      XMLDTDNotation.__super__.constructor.call(this, parent);
+      if (name == null) {
+        throw new Error("Missing DTD notation name. " + this.debugInfo(name));
+      }
+      if (!value.pubID && !value.sysID) {
+        throw new Error("Public or system identifiers are required for an external entity. " + this.debugInfo(name));
+      }
+      this.name = this.stringify.name(name);
+      this.type = NodeType.NotationDeclaration;
+      if (value.pubID != null) {
+        this.pubID = this.stringify.dtdPubID(value.pubID);
+      }
+      if (value.sysID != null) {
+        this.sysID = this.stringify.dtdSysID(value.sysID);
+      }
+    }
+
+    Object.defineProperty(XMLDTDNotation.prototype, 'publicId', {
+      get: function() {
+        return this.pubID;
+      }
+    });
+
+    Object.defineProperty(XMLDTDNotation.prototype, 'systemId', {
+      get: function() {
+        return this.sysID;
+      }
+    });
+
+    XMLDTDNotation.prototype.toString = function(options) {
+      return this.options.writer.dtdNotation(this, this.options.writer.filterOptions(options));
+    };
+
+    return XMLDTDNotation;
+
+  })(XMLNode);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 344:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+var register = __webpack_require__(171)
+var addHook = __webpack_require__(582)
+var removeHook = __webpack_require__(318)
+
+// bind with array of arguments: https://stackoverflow.com/a/21792913
+var bind = Function.bind
+var bindable = bind.bind(bind)
+
+function bindApi (hook, state, name) {
+  var removeHookRef = bindable(removeHook, null).apply(null, name ? [state, name] : [state])
+  hook.api = { remove: removeHookRef }
+  hook.remove = removeHookRef
+
+  ;['before', 'error', 'after', 'wrap'].forEach(function (kind) {
+    var args = name ? [state, kind, name] : [state, kind]
+    hook[kind] = hook.api[kind] = bindable(addHook, null).apply(null, args)
+  })
+}
+
+function HookSingular () {
+  var singularHookName = 'h'
+  var singularHookState = {
+    registry: {}
+  }
+  var singularHook = register.bind(null, singularHookState, singularHookName)
+  bindApi(singularHook, singularHookState, singularHookName)
+  return singularHook
+}
+
+function HookCollection () {
+  var state = {
+    registry: {}
+  }
+
+  var hook = register.bind(null, state)
+  bindApi(hook, state)
+
+  return hook
+}
+
+var collectionHookDeprecationMessageDisplayed = false
+function Hook () {
+  if (!collectionHookDeprecationMessageDisplayed) {
+    console.warn('[before-after-hook]: "Hook()" repurposing warning, use "Hook.Collection()". Read more: https://git.io/upgrade-before-after-hook-to-1.4')
+    collectionHookDeprecationMessageDisplayed = true
+  }
+  return HookCollection()
+}
+
+Hook.Singular = HookSingular.bind()
+Hook.Collection = HookCollection.bind()
+
+module.exports = Hook
+// expose constructors as a named property for TypeScript
+module.exports.Hook = Hook
+module.exports.Singular = Hook.Singular
+module.exports.Collection = Hook.Collection
+
+
+/***/ }),
+
+/***/ 345:
+/***/ (function(module) {
+
+var defaultOptions = {
+
+   allowDuplicateSections: false,
+
+};
+
+function simplePropertyAppender (properties, key, value) {
+
+   properties[key] = value;
+
+   return properties;
+
+}
+
+function sectionCollapsePropertyAppender (properties, key, value) {
+   var output = {};
+   var section = sectionFromPropertyName(key);
+   var existingKeys = Object.keys(properties);
+
+   // no section in property name so just append it to the list
+   if (!section || !existingKeys.length) {
+      output[key] = value;
+      return Object.assign(properties, output);
+   }
+
+   // has a section in the property name so append it in that section
+   var BEFORE = 1, DURING = 2, AFTER = 4;
+   var processing = BEFORE;
+
+   existingKeys.forEach(function (processingKey) {
+
+      var during = processing !== AFTER && processingKey.indexOf(section + '.') === 0;
+
+      if (key === processingKey) {
+         properties[processingKey] = value;
+         processing = AFTER;
+      }
+      else if (processing === BEFORE && during) {
+         // starts to be DURING
+         processing = DURING;
+      }
+      else if (processing === DURING && !during) {
+         // is now after
+         output[key] = value;
+         processing = AFTER;
+      }
+
+      output[processingKey] = properties[processingKey];
+
+   });
+
+   if (processing !== AFTER) {
+      output[key] = value;
+   }
+
+   return output;
+
+}
+
+function sectionFromPropertyName (name) {
+   var index = String(name).indexOf('.');
+   return index > 0 && name.substr(0, index) || '';
+}
+
+
+/**
+ * Builder method used to create a property appending function configured to the user
+ * requirements.
+ */
+function propertyAppender (userOptions) {
+
+   var options = Object.assign({}, defaultOptions, userOptions || {});
+
+   if (options.allowDuplicateSections) {
+      return simplePropertyAppender;
+   }
+
+   return sectionCollapsePropertyAppender;
+
+}
+
+module.exports = {
+
+   defaultOptions: defaultOptions,
+
+   propertyAppender: propertyAppender,
+
+};
+
+
+
+/***/ }),
+
+/***/ 348:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, WriterState, XMLDOMImplementation, XMLDocument, XMLDocumentCB, XMLStreamWriter, XMLStringWriter, assign, isFunction, ref;
+
+  ref = __webpack_require__(779), assign = ref.assign, isFunction = ref.isFunction;
+
+  XMLDOMImplementation = __webpack_require__(249);
+
+  XMLDocument = __webpack_require__(264);
+
+  XMLDocumentCB = __webpack_require__(555);
+
+  XMLStringWriter = __webpack_require__(133);
+
+  XMLStreamWriter = __webpack_require__(257);
+
+  NodeType = __webpack_require__(65);
+
+  WriterState = __webpack_require__(151);
+
+  module.exports.create = function(name, xmldec, doctype, options) {
+    var doc, root;
+    if (name == null) {
+      throw new Error("Root element needs a name.");
+    }
+    options = assign({}, xmldec, doctype, options);
+    doc = new XMLDocument(options);
+    root = doc.element(name);
+    if (!options.headless) {
+      doc.declaration(options);
+      if ((options.pubID != null) || (options.sysID != null)) {
+        doc.dtd(options);
+      }
+    }
+    return root;
+  };
+
+  module.exports.begin = function(options, onData, onEnd) {
+    var ref1;
+    if (isFunction(options)) {
+      ref1 = [options, onData], onData = ref1[0], onEnd = ref1[1];
+      options = {};
+    }
+    if (onData) {
+      return new XMLDocumentCB(options, onData, onEnd);
+    } else {
+      return new XMLDocument(options);
+    }
+  };
+
+  module.exports.stringWriter = function(options) {
+    return new XMLStringWriter(options);
+  };
+
+  module.exports.streamWriter = function(stream, options) {
+    return new XMLStreamWriter(stream, options);
+  };
+
+  module.exports.implementation = new XMLDOMImplementation();
+
+  module.exports.nodeType = NodeType;
+
+  module.exports.writerState = WriterState;
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 357:
+/***/ (function(module) {
+
+module.exports = require("assert");
+
+/***/ }),
+
+/***/ 363:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getOctokitOptions = exports.GitHub = exports.context = void 0;
+const Context = __importStar(__webpack_require__(390));
+const Utils = __importStar(__webpack_require__(489));
+// octokit + plugins
+const core_1 = __webpack_require__(900);
+const plugin_rest_endpoint_methods_1 = __webpack_require__(135);
+const plugin_paginate_rest_1 = __webpack_require__(545);
+exports.context = new Context.Context();
+const baseUrl = Utils.getApiBaseUrl();
+const defaults = {
+    baseUrl,
+    request: {
+        agent: Utils.getProxyAgent(baseUrl)
+    }
+};
+exports.GitHub = core_1.Octokit.plugin(plugin_rest_endpoint_methods_1.restEndpointMethods, plugin_paginate_rest_1.paginateRest).defaults(defaults);
+/**
+ * Convience function to correctly format Octokit Options to pass into the constructor.
+ *
+ * @param     token    the repo PAT or GITHUB_TOKEN
+ * @param     options  other options to set
+ */
+function getOctokitOptions(token, options) {
+    const opts = Object.assign({}, options || {}); // Shallow clone - don't mutate the object provided by the caller
+    // Auth
+    const auth = Utils.getAuthString(token, opts);
+    if (auth) {
+        opts.auth = auth;
+    }
+    return opts;
+}
+exports.getOctokitOptions = getOctokitOptions;
+//# sourceMappingURL=utils.js.map
+
+/***/ }),
+
+/***/ 386:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+
+const path = __webpack_require__(622);
+const which = __webpack_require__(100);
+const pathKey = __webpack_require__(839)();
+
+function resolveCommandAttempt(parsed, withoutPathExt) {
+    const cwd = process.cwd();
+    const hasCustomCwd = parsed.options.cwd != null;
+
+    // If a custom `cwd` was specified, we need to change the process cwd
+    // because `which` will do stat calls but does not support a custom cwd
+    if (hasCustomCwd) {
+        try {
+            process.chdir(parsed.options.cwd);
+        } catch (err) {
+            /* Empty */
+        }
+    }
+
+    let resolved;
+
+    try {
+        resolved = which.sync(parsed.command, {
+            path: (parsed.options.env || process.env)[pathKey],
+            pathExt: withoutPathExt ? path.delimiter : undefined,
+        });
+    } catch (e) {
+        /* Empty */
+    } finally {
+        process.chdir(cwd);
+    }
+
+    // If we successfully resolved, ensure that an absolute path is returned
+    // Note that when a custom `cwd` was used, we need to resolve to an absolute path based on it
+    if (resolved) {
+        resolved = path.resolve(hasCustomCwd ? parsed.options.cwd : '', resolved);
+    }
+
+    return resolved;
+}
+
+function resolveCommand(parsed) {
+    return resolveCommandAttempt(parsed) || resolveCommandAttempt(parsed, true);
+}
+
+module.exports = resolveCommand;
+
+
+/***/ }),
+
+/***/ 390:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.Context = void 0;
+const fs_1 = __webpack_require__(747);
+const os_1 = __webpack_require__(87);
+class Context {
+    /**
+     * Hydrate the context from the environment
+     */
+    constructor() {
+        this.payload = {};
+        if (process.env.GITHUB_EVENT_PATH) {
+            if (fs_1.existsSync(process.env.GITHUB_EVENT_PATH)) {
+                this.payload = JSON.parse(fs_1.readFileSync(process.env.GITHUB_EVENT_PATH, { encoding: 'utf8' }));
+            }
+            else {
+                const path = process.env.GITHUB_EVENT_PATH;
+                process.stdout.write(`GITHUB_EVENT_PATH ${path} does not exist${os_1.EOL}`);
+            }
+        }
+        this.eventName = process.env.GITHUB_EVENT_NAME;
+        this.sha = process.env.GITHUB_SHA;
+        this.ref = process.env.GITHUB_REF;
+        this.workflow = process.env.GITHUB_WORKFLOW;
+        this.action = process.env.GITHUB_ACTION;
+        this.actor = process.env.GITHUB_ACTOR;
+        this.job = process.env.GITHUB_JOB;
+        this.runNumber = parseInt(process.env.GITHUB_RUN_NUMBER, 10);
+        this.runId = parseInt(process.env.GITHUB_RUN_ID, 10);
+    }
+    get issue() {
+        const payload = this.payload;
+        return Object.assign(Object.assign({}, this.repo), { number: (payload.issue || payload.pull_request || payload).number });
+    }
+    get repo() {
+        if (process.env.GITHUB_REPOSITORY) {
+            const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
+            return { owner, repo };
+        }
+        if (this.payload.repository) {
+            return {
+                owner: this.payload.repository.owner.login,
+                repo: this.payload.repository.name
+            };
+        }
+        throw new Error("context.repo requires a GITHUB_REPOSITORY environment variable like 'owner/repo'");
+    }
+}
+exports.Context = Context;
+//# sourceMappingURL=context.js.map
+
+/***/ }),
+
+/***/ 413:
+/***/ (function(module) {
+
+module.exports = require("stream");
+
+/***/ }),
+
+/***/ 417:
+/***/ (function(module) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var XMLDOMStringList;
+
+  module.exports = XMLDOMStringList = (function() {
+    function XMLDOMStringList(arr) {
+      this.arr = arr || [];
+    }
+
+    Object.defineProperty(XMLDOMStringList.prototype, 'length', {
+      get: function() {
+        return this.arr.length;
+      }
+    });
+
+    XMLDOMStringList.prototype.item = function(index) {
+      return this.arr[index] || null;
+    };
+
+    XMLDOMStringList.prototype.contains = function(str) {
+      return this.arr.indexOf(str) !== -1;
+    };
+
+    return XMLDOMStringList;
+
+  })();
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 464:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+var once = __webpack_require__(870)
+var eos = __webpack_require__(183)
+var fs = __webpack_require__(747) // we only need fs to get the ReadStream and WriteStream prototypes
+
+var noop = function () {}
+var ancient = /^v?\.0/.test(process.version)
+
+var isFn = function (fn) {
+  return typeof fn === 'function'
+}
+
+var isFS = function (stream) {
+  if (!ancient) return false // newer node version do not need to care about fs is a special way
+  if (!fs) return false // browser
+  return (stream instanceof (fs.ReadStream || noop) || stream instanceof (fs.WriteStream || noop)) && isFn(stream.close)
+}
+
+var isRequest = function (stream) {
+  return stream.setHeader && isFn(stream.abort)
+}
+
+var destroyer = function (stream, reading, writing, callback) {
+  callback = once(callback)
+
+  var closed = false
+  stream.on('close', function () {
+    closed = true
+  })
+
+  eos(stream, {readable: reading, writable: writing}, function (err) {
+    if (err) return callback(err)
+    closed = true
+    callback()
+  })
+
+  var destroyed = false
+  return function (err) {
+    if (closed) return
+    if (destroyed) return
+    destroyed = true
+
+    if (isFS(stream)) return stream.close(noop) // use close for fs streams to avoid fd leaks
+    if (isRequest(stream)) return stream.abort() // request.destroy just do .end - .abort is what we want
+
+    if (isFn(stream.destroy)) return stream.destroy()
+
+    callback(err || new Error('stream was destroyed'))
+  }
+}
+
+var call = function (fn) {
+  fn()
+}
+
+var pipe = function (from, to) {
+  return from.pipe(to)
+}
+
+var pump = function () {
+  var streams = Array.prototype.slice.call(arguments)
+  var callback = isFn(streams[streams.length - 1] || noop) && streams.pop() || noop
+
+  if (Array.isArray(streams[0])) streams = streams[0]
+  if (streams.length < 2) throw new Error('pump requires two streams per minimum')
+
+  var error
+  var destroys = streams.map(function (stream, i) {
+    var reading = i < streams.length - 1
+    var writing = i > 0
+    return destroyer(stream, reading, writing, function (err) {
+      if (!error) error = err
+      if (err) destroys.forEach(call)
+      if (reading) return
+      destroys.forEach(call)
+      callback(error)
+    })
+  })
+
+  return streams.reduce(pipe)
+}
+
+module.exports = pump
+
+
+/***/ }),
+
+/***/ 476:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, WriterState, XMLCData, XMLComment, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDeclaration, XMLDocType, XMLDummy, XMLElement, XMLProcessingInstruction, XMLRaw, XMLText, XMLWriterBase, assign,
+    hasProp = {}.hasOwnProperty;
+
+  assign = __webpack_require__(779).assign;
+
+  NodeType = __webpack_require__(65);
+
+  XMLDeclaration = __webpack_require__(960);
+
+  XMLDocType = __webpack_require__(933);
+
+  XMLCData = __webpack_require__(525);
+
+  XMLComment = __webpack_require__(79);
+
+  XMLElement = __webpack_require__(212);
+
+  XMLRaw = __webpack_require__(253);
+
+  XMLText = __webpack_require__(800);
+
+  XMLProcessingInstruction = __webpack_require__(177);
+
+  XMLDummy = __webpack_require__(865);
+
+  XMLDTDAttList = __webpack_require__(241);
+
+  XMLDTDElement = __webpack_require__(578);
+
+  XMLDTDEntity = __webpack_require__(802);
+
+  XMLDTDNotation = __webpack_require__(331);
+
+  WriterState = __webpack_require__(151);
+
+  module.exports = XMLWriterBase = (function() {
+    function XMLWriterBase(options) {
+      var key, ref, value;
+      options || (options = {});
+      this.options = options;
+      ref = options.writer || {};
+      for (key in ref) {
+        if (!hasProp.call(ref, key)) continue;
+        value = ref[key];
+        this["_" + key] = this[key];
+        this[key] = value;
+      }
+    }
+
+    XMLWriterBase.prototype.filterOptions = function(options) {
+      var filteredOptions, ref, ref1, ref2, ref3, ref4, ref5, ref6;
+      options || (options = {});
+      options = assign({}, this.options, options);
+      filteredOptions = {
+        writer: this
+      };
+      filteredOptions.pretty = options.pretty || false;
+      filteredOptions.allowEmpty = options.allowEmpty || false;
+      filteredOptions.indent = (ref = options.indent) != null ? ref : '  ';
+      filteredOptions.newline = (ref1 = options.newline) != null ? ref1 : '\n';
+      filteredOptions.offset = (ref2 = options.offset) != null ? ref2 : 0;
+      filteredOptions.dontPrettyTextNodes = (ref3 = (ref4 = options.dontPrettyTextNodes) != null ? ref4 : options.dontprettytextnodes) != null ? ref3 : 0;
+      filteredOptions.spaceBeforeSlash = (ref5 = (ref6 = options.spaceBeforeSlash) != null ? ref6 : options.spacebeforeslash) != null ? ref5 : '';
+      if (filteredOptions.spaceBeforeSlash === true) {
+        filteredOptions.spaceBeforeSlash = ' ';
+      }
+      filteredOptions.suppressPrettyCount = 0;
+      filteredOptions.user = {};
+      filteredOptions.state = WriterState.None;
+      return filteredOptions;
+    };
+
+    XMLWriterBase.prototype.indent = function(node, options, level) {
+      var indentLevel;
+      if (!options.pretty || options.suppressPrettyCount) {
+        return '';
+      } else if (options.pretty) {
+        indentLevel = (level || 0) + options.offset + 1;
+        if (indentLevel > 0) {
+          return new Array(indentLevel).join(options.indent);
+        }
+      }
+      return '';
+    };
+
+    XMLWriterBase.prototype.endline = function(node, options, level) {
+      if (!options.pretty || options.suppressPrettyCount) {
+        return '';
+      } else {
+        return options.newline;
+      }
+    };
+
+    XMLWriterBase.prototype.attribute = function(att, options, level) {
+      var r;
+      this.openAttribute(att, options, level);
+      r = ' ' + att.name + '="' + att.value + '"';
+      this.closeAttribute(att, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.cdata = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level) + '<![CDATA[';
+      options.state = WriterState.InsideTag;
+      r += node.value;
+      options.state = WriterState.CloseTag;
+      r += ']]>' + this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.comment = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level) + '<!-- ';
+      options.state = WriterState.InsideTag;
+      r += node.value;
+      options.state = WriterState.CloseTag;
+      r += ' -->' + this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.declaration = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level) + '<?xml';
+      options.state = WriterState.InsideTag;
+      r += ' version="' + node.version + '"';
+      if (node.encoding != null) {
+        r += ' encoding="' + node.encoding + '"';
+      }
+      if (node.standalone != null) {
+        r += ' standalone="' + node.standalone + '"';
+      }
+      options.state = WriterState.CloseTag;
+      r += options.spaceBeforeSlash + '?>';
+      r += this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.docType = function(node, options, level) {
+      var child, i, len, r, ref;
+      level || (level = 0);
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level);
+      r += '<!DOCTYPE ' + node.root().name;
+      if (node.pubID && node.sysID) {
+        r += ' PUBLIC "' + node.pubID + '" "' + node.sysID + '"';
+      } else if (node.sysID) {
+        r += ' SYSTEM "' + node.sysID + '"';
+      }
+      if (node.children.length > 0) {
+        r += ' [';
+        r += this.endline(node, options, level);
+        options.state = WriterState.InsideTag;
+        ref = node.children;
+        for (i = 0, len = ref.length; i < len; i++) {
+          child = ref[i];
+          r += this.writeChildNode(child, options, level + 1);
+        }
+        options.state = WriterState.CloseTag;
+        r += ']';
+      }
+      options.state = WriterState.CloseTag;
+      r += options.spaceBeforeSlash + '>';
+      r += this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.element = function(node, options, level) {
+      var att, child, childNodeCount, firstChildNode, i, j, len, len1, name, prettySuppressed, r, ref, ref1, ref2;
+      level || (level = 0);
+      prettySuppressed = false;
+      r = '';
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r += this.indent(node, options, level) + '<' + node.name;
+      ref = node.attribs;
+      for (name in ref) {
+        if (!hasProp.call(ref, name)) continue;
+        att = ref[name];
+        r += this.attribute(att, options, level);
+      }
+      childNodeCount = node.children.length;
+      firstChildNode = childNodeCount === 0 ? null : node.children[0];
+      if (childNodeCount === 0 || node.children.every(function(e) {
+        return (e.type === NodeType.Text || e.type === NodeType.Raw) && e.value === '';
+      })) {
+        if (options.allowEmpty) {
+          r += '>';
+          options.state = WriterState.CloseTag;
+          r += '</' + node.name + '>' + this.endline(node, options, level);
+        } else {
+          options.state = WriterState.CloseTag;
+          r += options.spaceBeforeSlash + '/>' + this.endline(node, options, level);
+        }
+      } else if (options.pretty && childNodeCount === 1 && (firstChildNode.type === NodeType.Text || firstChildNode.type === NodeType.Raw) && (firstChildNode.value != null)) {
+        r += '>';
+        options.state = WriterState.InsideTag;
+        options.suppressPrettyCount++;
+        prettySuppressed = true;
+        r += this.writeChildNode(firstChildNode, options, level + 1);
+        options.suppressPrettyCount--;
+        prettySuppressed = false;
+        options.state = WriterState.CloseTag;
+        r += '</' + node.name + '>' + this.endline(node, options, level);
+      } else {
+        if (options.dontPrettyTextNodes) {
+          ref1 = node.children;
+          for (i = 0, len = ref1.length; i < len; i++) {
+            child = ref1[i];
+            if ((child.type === NodeType.Text || child.type === NodeType.Raw) && (child.value != null)) {
+              options.suppressPrettyCount++;
+              prettySuppressed = true;
+              break;
+            }
+          }
+        }
+        r += '>' + this.endline(node, options, level);
+        options.state = WriterState.InsideTag;
+        ref2 = node.children;
+        for (j = 0, len1 = ref2.length; j < len1; j++) {
+          child = ref2[j];
+          r += this.writeChildNode(child, options, level + 1);
+        }
+        options.state = WriterState.CloseTag;
+        r += this.indent(node, options, level) + '</' + node.name + '>';
+        if (prettySuppressed) {
+          options.suppressPrettyCount--;
+        }
+        r += this.endline(node, options, level);
+        options.state = WriterState.None;
+      }
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.writeChildNode = function(node, options, level) {
+      switch (node.type) {
+        case NodeType.CData:
+          return this.cdata(node, options, level);
+        case NodeType.Comment:
+          return this.comment(node, options, level);
+        case NodeType.Element:
+          return this.element(node, options, level);
+        case NodeType.Raw:
+          return this.raw(node, options, level);
+        case NodeType.Text:
+          return this.text(node, options, level);
+        case NodeType.ProcessingInstruction:
+          return this.processingInstruction(node, options, level);
+        case NodeType.Dummy:
+          return '';
+        case NodeType.Declaration:
+          return this.declaration(node, options, level);
+        case NodeType.DocType:
+          return this.docType(node, options, level);
+        case NodeType.AttributeDeclaration:
+          return this.dtdAttList(node, options, level);
+        case NodeType.ElementDeclaration:
+          return this.dtdElement(node, options, level);
+        case NodeType.EntityDeclaration:
+          return this.dtdEntity(node, options, level);
+        case NodeType.NotationDeclaration:
+          return this.dtdNotation(node, options, level);
+        default:
+          throw new Error("Unknown XML node type: " + node.constructor.name);
+      }
+    };
+
+    XMLWriterBase.prototype.processingInstruction = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level) + '<?';
+      options.state = WriterState.InsideTag;
+      r += node.target;
+      if (node.value) {
+        r += ' ' + node.value;
+      }
+      options.state = WriterState.CloseTag;
+      r += options.spaceBeforeSlash + '?>';
+      r += this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.raw = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level);
+      options.state = WriterState.InsideTag;
+      r += node.value;
+      options.state = WriterState.CloseTag;
+      r += this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.text = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level);
+      options.state = WriterState.InsideTag;
+      r += node.value;
+      options.state = WriterState.CloseTag;
+      r += this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.dtdAttList = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level) + '<!ATTLIST';
+      options.state = WriterState.InsideTag;
+      r += ' ' + node.elementName + ' ' + node.attributeName + ' ' + node.attributeType;
+      if (node.defaultValueType !== '#DEFAULT') {
+        r += ' ' + node.defaultValueType;
+      }
+      if (node.defaultValue) {
+        r += ' "' + node.defaultValue + '"';
+      }
+      options.state = WriterState.CloseTag;
+      r += options.spaceBeforeSlash + '>' + this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.dtdElement = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level) + '<!ELEMENT';
+      options.state = WriterState.InsideTag;
+      r += ' ' + node.name + ' ' + node.value;
+      options.state = WriterState.CloseTag;
+      r += options.spaceBeforeSlash + '>' + this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.dtdEntity = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level) + '<!ENTITY';
+      options.state = WriterState.InsideTag;
+      if (node.pe) {
+        r += ' %';
+      }
+      r += ' ' + node.name;
+      if (node.value) {
+        r += ' "' + node.value + '"';
+      } else {
+        if (node.pubID && node.sysID) {
+          r += ' PUBLIC "' + node.pubID + '" "' + node.sysID + '"';
+        } else if (node.sysID) {
+          r += ' SYSTEM "' + node.sysID + '"';
+        }
+        if (node.nData) {
+          r += ' NDATA ' + node.nData;
+        }
+      }
+      options.state = WriterState.CloseTag;
+      r += options.spaceBeforeSlash + '>' + this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.dtdNotation = function(node, options, level) {
+      var r;
+      this.openNode(node, options, level);
+      options.state = WriterState.OpenTag;
+      r = this.indent(node, options, level) + '<!NOTATION';
+      options.state = WriterState.InsideTag;
+      r += ' ' + node.name;
+      if (node.pubID && node.sysID) {
+        r += ' PUBLIC "' + node.pubID + '" "' + node.sysID + '"';
+      } else if (node.pubID) {
+        r += ' PUBLIC "' + node.pubID + '"';
+      } else if (node.sysID) {
+        r += ' SYSTEM "' + node.sysID + '"';
+      }
+      options.state = WriterState.CloseTag;
+      r += options.spaceBeforeSlash + '>' + this.endline(node, options, level);
+      options.state = WriterState.None;
+      this.closeNode(node, options, level);
+      return r;
+    };
+
+    XMLWriterBase.prototype.openNode = function(node, options, level) {};
+
+    XMLWriterBase.prototype.closeNode = function(node, options, level) {};
+
+    XMLWriterBase.prototype.openAttribute = function(att, options, level) {};
+
+    XMLWriterBase.prototype.closeAttribute = function(att, options, level) {};
+
+    return XMLWriterBase;
+
+  })();
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 489:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
+    __setModuleDefault(result, mod);
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getApiBaseUrl = exports.getProxyAgent = exports.getAuthString = void 0;
+const httpClient = __importStar(__webpack_require__(7));
+function getAuthString(token, options) {
+    if (!token && !options.auth) {
+        throw new Error('Parameter token or opts.auth is required');
+    }
+    else if (token && options.auth) {
+        throw new Error('Parameters token and opts.auth may not both be specified');
+    }
+    return typeof options.auth === 'string' ? options.auth : `token ${token}`;
+}
+exports.getAuthString = getAuthString;
+function getProxyAgent(destinationUrl) {
+    const hc = new httpClient.HttpClient();
+    return hc.getAgent(destinationUrl);
+}
+exports.getProxyAgent = getProxyAgent;
+function getApiBaseUrl() {
+    return process.env['GITHUB_API_URL'] || 'https://api.github.com';
+}
+exports.getApiBaseUrl = getApiBaseUrl;
+//# sourceMappingURL=utils.js.map
+
+/***/ }),
+
+/***/ 509:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  "use strict";
+  var bom, defaults, events, isEmpty, processItem, processors, sax, setImmediate,
+    bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  sax = __webpack_require__(877);
+
+  events = __webpack_require__(614);
+
+  bom = __webpack_require__(981);
+
+  processors = __webpack_require__(202);
+
+  setImmediate = __webpack_require__(213).setImmediate;
+
+  defaults = __webpack_require__(566).defaults;
+
+  isEmpty = function(thing) {
+    return typeof thing === "object" && (thing != null) && Object.keys(thing).length === 0;
+  };
+
+  processItem = function(processors, item, key) {
+    var i, len, process;
+    for (i = 0, len = processors.length; i < len; i++) {
+      process = processors[i];
+      item = process(item, key);
+    }
+    return item;
+  };
+
+  exports.Parser = (function(superClass) {
+    extend(Parser, superClass);
+
+    function Parser(opts) {
+      this.parseStringPromise = bind(this.parseStringPromise, this);
+      this.parseString = bind(this.parseString, this);
+      this.reset = bind(this.reset, this);
+      this.assignOrPush = bind(this.assignOrPush, this);
+      this.processAsync = bind(this.processAsync, this);
+      var key, ref, value;
+      if (!(this instanceof exports.Parser)) {
+        return new exports.Parser(opts);
+      }
+      this.options = {};
+      ref = defaults["0.2"];
+      for (key in ref) {
+        if (!hasProp.call(ref, key)) continue;
+        value = ref[key];
+        this.options[key] = value;
+      }
+      for (key in opts) {
+        if (!hasProp.call(opts, key)) continue;
+        value = opts[key];
+        this.options[key] = value;
+      }
+      if (this.options.xmlns) {
+        this.options.xmlnskey = this.options.attrkey + "ns";
+      }
+      if (this.options.normalizeTags) {
+        if (!this.options.tagNameProcessors) {
+          this.options.tagNameProcessors = [];
+        }
+        this.options.tagNameProcessors.unshift(processors.normalize);
+      }
+      this.reset();
+    }
+
+    Parser.prototype.processAsync = function() {
+      var chunk, err;
+      try {
+        if (this.remaining.length <= this.options.chunkSize) {
+          chunk = this.remaining;
+          this.remaining = '';
+          this.saxParser = this.saxParser.write(chunk);
+          return this.saxParser.close();
+        } else {
+          chunk = this.remaining.substr(0, this.options.chunkSize);
+          this.remaining = this.remaining.substr(this.options.chunkSize, this.remaining.length);
+          this.saxParser = this.saxParser.write(chunk);
+          return setImmediate(this.processAsync);
+        }
+      } catch (error1) {
+        err = error1;
+        if (!this.saxParser.errThrown) {
+          this.saxParser.errThrown = true;
+          return this.emit(err);
+        }
+      }
+    };
+
+    Parser.prototype.assignOrPush = function(obj, key, newValue) {
+      if (!(key in obj)) {
+        if (!this.options.explicitArray) {
+          return obj[key] = newValue;
+        } else {
+          return obj[key] = [newValue];
+        }
+      } else {
+        if (!(obj[key] instanceof Array)) {
+          obj[key] = [obj[key]];
+        }
+        return obj[key].push(newValue);
+      }
+    };
+
+    Parser.prototype.reset = function() {
+      var attrkey, charkey, ontext, stack;
+      this.removeAllListeners();
+      this.saxParser = sax.parser(this.options.strict, {
+        trim: false,
+        normalize: false,
+        xmlns: this.options.xmlns
+      });
+      this.saxParser.errThrown = false;
+      this.saxParser.onerror = (function(_this) {
+        return function(error) {
+          _this.saxParser.resume();
+          if (!_this.saxParser.errThrown) {
+            _this.saxParser.errThrown = true;
+            return _this.emit("error", error);
+          }
+        };
+      })(this);
+      this.saxParser.onend = (function(_this) {
+        return function() {
+          if (!_this.saxParser.ended) {
+            _this.saxParser.ended = true;
+            return _this.emit("end", _this.resultObject);
+          }
+        };
+      })(this);
+      this.saxParser.ended = false;
+      this.EXPLICIT_CHARKEY = this.options.explicitCharkey;
+      this.resultObject = null;
+      stack = [];
+      attrkey = this.options.attrkey;
+      charkey = this.options.charkey;
+      this.saxParser.onopentag = (function(_this) {
+        return function(node) {
+          var key, newValue, obj, processedKey, ref;
+          obj = {};
+          obj[charkey] = "";
+          if (!_this.options.ignoreAttrs) {
+            ref = node.attributes;
+            for (key in ref) {
+              if (!hasProp.call(ref, key)) continue;
+              if (!(attrkey in obj) && !_this.options.mergeAttrs) {
+                obj[attrkey] = {};
+              }
+              newValue = _this.options.attrValueProcessors ? processItem(_this.options.attrValueProcessors, node.attributes[key], key) : node.attributes[key];
+              processedKey = _this.options.attrNameProcessors ? processItem(_this.options.attrNameProcessors, key) : key;
+              if (_this.options.mergeAttrs) {
+                _this.assignOrPush(obj, processedKey, newValue);
+              } else {
+                obj[attrkey][processedKey] = newValue;
+              }
+            }
+          }
+          obj["#name"] = _this.options.tagNameProcessors ? processItem(_this.options.tagNameProcessors, node.name) : node.name;
+          if (_this.options.xmlns) {
+            obj[_this.options.xmlnskey] = {
+              uri: node.uri,
+              local: node.local
+            };
+          }
+          return stack.push(obj);
+        };
+      })(this);
+      this.saxParser.onclosetag = (function(_this) {
+        return function() {
+          var cdata, emptyStr, key, node, nodeName, obj, objClone, old, s, xpath;
+          obj = stack.pop();
+          nodeName = obj["#name"];
+          if (!_this.options.explicitChildren || !_this.options.preserveChildrenOrder) {
+            delete obj["#name"];
+          }
+          if (obj.cdata === true) {
+            cdata = obj.cdata;
+            delete obj.cdata;
+          }
+          s = stack[stack.length - 1];
+          if (obj[charkey].match(/^\s*$/) && !cdata) {
+            emptyStr = obj[charkey];
+            delete obj[charkey];
+          } else {
+            if (_this.options.trim) {
+              obj[charkey] = obj[charkey].trim();
+            }
+            if (_this.options.normalize) {
+              obj[charkey] = obj[charkey].replace(/\s{2,}/g, " ").trim();
+            }
+            obj[charkey] = _this.options.valueProcessors ? processItem(_this.options.valueProcessors, obj[charkey], nodeName) : obj[charkey];
+            if (Object.keys(obj).length === 1 && charkey in obj && !_this.EXPLICIT_CHARKEY) {
+              obj = obj[charkey];
+            }
+          }
+          if (isEmpty(obj)) {
+            obj = _this.options.emptyTag !== '' ? _this.options.emptyTag : emptyStr;
+          }
+          if (_this.options.validator != null) {
+            xpath = "/" + ((function() {
+              var i, len, results;
+              results = [];
+              for (i = 0, len = stack.length; i < len; i++) {
+                node = stack[i];
+                results.push(node["#name"]);
+              }
+              return results;
+            })()).concat(nodeName).join("/");
+            (function() {
+              var err;
+              try {
+                return obj = _this.options.validator(xpath, s && s[nodeName], obj);
+              } catch (error1) {
+                err = error1;
+                return _this.emit("error", err);
+              }
+            })();
+          }
+          if (_this.options.explicitChildren && !_this.options.mergeAttrs && typeof obj === 'object') {
+            if (!_this.options.preserveChildrenOrder) {
+              node = {};
+              if (_this.options.attrkey in obj) {
+                node[_this.options.attrkey] = obj[_this.options.attrkey];
+                delete obj[_this.options.attrkey];
+              }
+              if (!_this.options.charsAsChildren && _this.options.charkey in obj) {
+                node[_this.options.charkey] = obj[_this.options.charkey];
+                delete obj[_this.options.charkey];
+              }
+              if (Object.getOwnPropertyNames(obj).length > 0) {
+                node[_this.options.childkey] = obj;
+              }
+              obj = node;
+            } else if (s) {
+              s[_this.options.childkey] = s[_this.options.childkey] || [];
+              objClone = {};
+              for (key in obj) {
+                if (!hasProp.call(obj, key)) continue;
+                objClone[key] = obj[key];
+              }
+              s[_this.options.childkey].push(objClone);
+              delete obj["#name"];
+              if (Object.keys(obj).length === 1 && charkey in obj && !_this.EXPLICIT_CHARKEY) {
+                obj = obj[charkey];
+              }
+            }
+          }
+          if (stack.length > 0) {
+            return _this.assignOrPush(s, nodeName, obj);
+          } else {
+            if (_this.options.explicitRoot) {
+              old = obj;
+              obj = {};
+              obj[nodeName] = old;
+            }
+            _this.resultObject = obj;
+            _this.saxParser.ended = true;
+            return _this.emit("end", _this.resultObject);
+          }
+        };
+      })(this);
+      ontext = (function(_this) {
+        return function(text) {
+          var charChild, s;
+          s = stack[stack.length - 1];
+          if (s) {
+            s[charkey] += text;
+            if (_this.options.explicitChildren && _this.options.preserveChildrenOrder && _this.options.charsAsChildren && (_this.options.includeWhiteChars || text.replace(/\\n/g, '').trim() !== '')) {
+              s[_this.options.childkey] = s[_this.options.childkey] || [];
+              charChild = {
+                '#name': '__text__'
+              };
+              charChild[charkey] = text;
+              if (_this.options.normalize) {
+                charChild[charkey] = charChild[charkey].replace(/\s{2,}/g, " ").trim();
+              }
+              s[_this.options.childkey].push(charChild);
+            }
+            return s;
+          }
+        };
+      })(this);
+      this.saxParser.ontext = ontext;
+      return this.saxParser.oncdata = (function(_this) {
+        return function(text) {
+          var s;
+          s = ontext(text);
+          if (s) {
+            return s.cdata = true;
+          }
+        };
+      })(this);
+    };
+
+    Parser.prototype.parseString = function(str, cb) {
+      var err;
+      if ((cb != null) && typeof cb === "function") {
+        this.on("end", function(result) {
+          this.reset();
+          return cb(null, result);
+        });
+        this.on("error", function(err) {
+          this.reset();
+          return cb(err);
+        });
+      }
+      try {
+        str = str.toString();
+        if (str.trim() === '') {
+          this.emit("end", null);
+          return true;
+        }
+        str = bom.stripBOM(str);
+        if (this.options.async) {
+          this.remaining = str;
+          setImmediate(this.processAsync);
+          return this.saxParser;
+        }
+        return this.saxParser.write(str).close();
+      } catch (error1) {
+        err = error1;
+        if (!(this.saxParser.errThrown || this.saxParser.ended)) {
+          this.emit('error', err);
+          return this.saxParser.errThrown = true;
+        } else if (this.saxParser.ended) {
+          throw err;
+        }
+      }
+    };
+
+    Parser.prototype.parseStringPromise = function(str) {
+      return new Promise((function(_this) {
+        return function(resolve, reject) {
+          return _this.parseString(str, function(err, value) {
+            if (err) {
+              return reject(err);
+            } else {
+              return resolve(value);
+            }
+          });
+        };
+      })(this));
+    };
+
+    return Parser;
+
+  })(events);
+
+  exports.parseString = function(str, a, b) {
+    var cb, options, parser;
+    if (b != null) {
+      if (typeof b === 'function') {
+        cb = b;
+      }
+      if (typeof a === 'object') {
+        options = a;
+      }
+    } else {
+      if (typeof a === 'function') {
+        cb = a;
+      }
+      options = {};
+    }
+    parser = new exports.Parser(options);
+    return parser.parseString(str, cb);
+  };
+
+  exports.parseStringPromise = function(str, a) {
+    var options, parser;
+    if (typeof a === 'object') {
+      options = a;
+    }
+    parser = new exports.Parser(options);
+    return parser.parseStringPromise(str);
+  };
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 525:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -3164,9 +6969,9 @@ function sync (path, options) {
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  NodeType = __webpack_require__(700);
+  NodeType = __webpack_require__(65);
 
-  XMLCharacterData = __webpack_require__(55);
+  XMLCharacterData = __webpack_require__(245);
 
   module.exports = XMLCData = (function(superClass) {
     extend(XMLCData, superClass);
@@ -3198,7 +7003,2358 @@ function sync (path, options) {
 
 /***/ }),
 
-/***/ 160:
+/***/ 545:
+/***/ (function(__unusedmodule, exports) {
+
+"use strict";
+
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+const VERSION = "2.2.3";
+
+/**
+ * Some “list” response that can be paginated have a different response structure
+ *
+ * They have a `total_count` key in the response (search also has `incomplete_results`,
+ * /installation/repositories also has `repository_selection`), as well as a key with
+ * the list of the items which name varies from endpoint to endpoint.
+ *
+ * Octokit normalizes these responses so that paginated results are always returned following
+ * the same structure. One challenge is that if the list response has only one page, no Link
+ * header is provided, so this header alone is not sufficient to check wether a response is
+ * paginated or not.
+ *
+ * We check if a "total_count" key is present in the response data, but also make sure that
+ * a "url" property is not, as the "Get the combined status for a specific ref" endpoint would
+ * otherwise match: https://developer.github.com/v3/repos/statuses/#get-the-combined-status-for-a-specific-ref
+ */
+function normalizePaginatedListResponse(response) {
+  const responseNeedsNormalization = "total_count" in response.data && !("url" in response.data);
+  if (!responseNeedsNormalization) return response; // keep the additional properties intact as there is currently no other way
+  // to retrieve the same information.
+
+  const incompleteResults = response.data.incomplete_results;
+  const repositorySelection = response.data.repository_selection;
+  const totalCount = response.data.total_count;
+  delete response.data.incomplete_results;
+  delete response.data.repository_selection;
+  delete response.data.total_count;
+  const namespaceKey = Object.keys(response.data)[0];
+  const data = response.data[namespaceKey];
+  response.data = data;
+
+  if (typeof incompleteResults !== "undefined") {
+    response.data.incomplete_results = incompleteResults;
+  }
+
+  if (typeof repositorySelection !== "undefined") {
+    response.data.repository_selection = repositorySelection;
+  }
+
+  response.data.total_count = totalCount;
+  return response;
+}
+
+function iterator(octokit, route, parameters) {
+  const options = typeof route === "function" ? route.endpoint(parameters) : octokit.request.endpoint(route, parameters);
+  const requestMethod = typeof route === "function" ? route : octokit.request;
+  const method = options.method;
+  const headers = options.headers;
+  let url = options.url;
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next() {
+        if (!url) {
+          return Promise.resolve({
+            done: true
+          });
+        }
+
+        return requestMethod({
+          method,
+          url,
+          headers
+        }).then(normalizePaginatedListResponse).then(response => {
+          // `response.headers.link` format:
+          // '<https://api.github.com/users/aseemk/followers?page=2>; rel="next", <https://api.github.com/users/aseemk/followers?page=2>; rel="last"'
+          // sets `url` to undefined if "next" URL is not present or `link` header is not set
+          url = ((response.headers.link || "").match(/<([^>]+)>;\s*rel="next"/) || [])[1];
+          return {
+            value: response
+          };
+        });
+      }
+
+    })
+  };
+}
+
+function paginate(octokit, route, parameters, mapFn) {
+  if (typeof parameters === "function") {
+    mapFn = parameters;
+    parameters = undefined;
+  }
+
+  return gather(octokit, [], iterator(octokit, route, parameters)[Symbol.asyncIterator](), mapFn);
+}
+
+function gather(octokit, results, iterator, mapFn) {
+  return iterator.next().then(result => {
+    if (result.done) {
+      return results;
+    }
+
+    let earlyExit = false;
+
+    function done() {
+      earlyExit = true;
+    }
+
+    results = results.concat(mapFn ? mapFn(result.value, done) : result.value.data);
+
+    if (earlyExit) {
+      return results;
+    }
+
+    return gather(octokit, results, iterator, mapFn);
+  });
+}
+
+/**
+ * @param octokit Octokit instance
+ * @param options Options passed to Octokit constructor
+ */
+
+function paginateRest(octokit) {
+  return {
+    paginate: Object.assign(paginate.bind(null, octokit), {
+      iterator: iterator.bind(null, octokit)
+    })
+  };
+}
+paginateRest.VERSION = VERSION;
+
+exports.paginateRest = paginateRest;
+//# sourceMappingURL=index.js.map
+
+
+/***/ }),
+
+/***/ 555:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, WriterState, XMLAttribute, XMLCData, XMLComment, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDeclaration, XMLDocType, XMLDocument, XMLDocumentCB, XMLElement, XMLProcessingInstruction, XMLRaw, XMLStringWriter, XMLStringifier, XMLText, getValue, isFunction, isObject, isPlainObject, ref,
+    hasProp = {}.hasOwnProperty;
+
+  ref = __webpack_require__(779), isObject = ref.isObject, isFunction = ref.isFunction, isPlainObject = ref.isPlainObject, getValue = ref.getValue;
+
+  NodeType = __webpack_require__(65);
+
+  XMLDocument = __webpack_require__(264);
+
+  XMLElement = __webpack_require__(212);
+
+  XMLCData = __webpack_require__(525);
+
+  XMLComment = __webpack_require__(79);
+
+  XMLRaw = __webpack_require__(253);
+
+  XMLText = __webpack_require__(800);
+
+  XMLProcessingInstruction = __webpack_require__(177);
+
+  XMLDeclaration = __webpack_require__(960);
+
+  XMLDocType = __webpack_require__(933);
+
+  XMLDTDAttList = __webpack_require__(241);
+
+  XMLDTDEntity = __webpack_require__(802);
+
+  XMLDTDElement = __webpack_require__(578);
+
+  XMLDTDNotation = __webpack_require__(331);
+
+  XMLAttribute = __webpack_require__(883);
+
+  XMLStringifier = __webpack_require__(925);
+
+  XMLStringWriter = __webpack_require__(133);
+
+  WriterState = __webpack_require__(151);
+
+  module.exports = XMLDocumentCB = (function() {
+    function XMLDocumentCB(options, onData, onEnd) {
+      var writerOptions;
+      this.name = "?xml";
+      this.type = NodeType.Document;
+      options || (options = {});
+      writerOptions = {};
+      if (!options.writer) {
+        options.writer = new XMLStringWriter();
+      } else if (isPlainObject(options.writer)) {
+        writerOptions = options.writer;
+        options.writer = new XMLStringWriter();
+      }
+      this.options = options;
+      this.writer = options.writer;
+      this.writerOptions = this.writer.filterOptions(writerOptions);
+      this.stringify = new XMLStringifier(options);
+      this.onDataCallback = onData || function() {};
+      this.onEndCallback = onEnd || function() {};
+      this.currentNode = null;
+      this.currentLevel = -1;
+      this.openTags = {};
+      this.documentStarted = false;
+      this.documentCompleted = false;
+      this.root = null;
+    }
+
+    XMLDocumentCB.prototype.createChildNode = function(node) {
+      var att, attName, attributes, child, i, len, ref1, ref2;
+      switch (node.type) {
+        case NodeType.CData:
+          this.cdata(node.value);
+          break;
+        case NodeType.Comment:
+          this.comment(node.value);
+          break;
+        case NodeType.Element:
+          attributes = {};
+          ref1 = node.attribs;
+          for (attName in ref1) {
+            if (!hasProp.call(ref1, attName)) continue;
+            att = ref1[attName];
+            attributes[attName] = att.value;
+          }
+          this.node(node.name, attributes);
+          break;
+        case NodeType.Dummy:
+          this.dummy();
+          break;
+        case NodeType.Raw:
+          this.raw(node.value);
+          break;
+        case NodeType.Text:
+          this.text(node.value);
+          break;
+        case NodeType.ProcessingInstruction:
+          this.instruction(node.target, node.value);
+          break;
+        default:
+          throw new Error("This XML node type is not supported in a JS object: " + node.constructor.name);
+      }
+      ref2 = node.children;
+      for (i = 0, len = ref2.length; i < len; i++) {
+        child = ref2[i];
+        this.createChildNode(child);
+        if (child.type === NodeType.Element) {
+          this.up();
+        }
+      }
+      return this;
+    };
+
+    XMLDocumentCB.prototype.dummy = function() {
+      return this;
+    };
+
+    XMLDocumentCB.prototype.node = function(name, attributes, text) {
+      var ref1;
+      if (name == null) {
+        throw new Error("Missing node name.");
+      }
+      if (this.root && this.currentLevel === -1) {
+        throw new Error("Document can only have one root node. " + this.debugInfo(name));
+      }
+      this.openCurrent();
+      name = getValue(name);
+      if (attributes == null) {
+        attributes = {};
+      }
+      attributes = getValue(attributes);
+      if (!isObject(attributes)) {
+        ref1 = [attributes, text], text = ref1[0], attributes = ref1[1];
+      }
+      this.currentNode = new XMLElement(this, name, attributes);
+      this.currentNode.children = false;
+      this.currentLevel++;
+      this.openTags[this.currentLevel] = this.currentNode;
+      if (text != null) {
+        this.text(text);
+      }
+      return this;
+    };
+
+    XMLDocumentCB.prototype.element = function(name, attributes, text) {
+      var child, i, len, oldValidationFlag, ref1, root;
+      if (this.currentNode && this.currentNode.type === NodeType.DocType) {
+        this.dtdElement.apply(this, arguments);
+      } else {
+        if (Array.isArray(name) || isObject(name) || isFunction(name)) {
+          oldValidationFlag = this.options.noValidation;
+          this.options.noValidation = true;
+          root = new XMLDocument(this.options).element('TEMP_ROOT');
+          root.element(name);
+          this.options.noValidation = oldValidationFlag;
+          ref1 = root.children;
+          for (i = 0, len = ref1.length; i < len; i++) {
+            child = ref1[i];
+            this.createChildNode(child);
+            if (child.type === NodeType.Element) {
+              this.up();
+            }
+          }
+        } else {
+          this.node(name, attributes, text);
+        }
+      }
+      return this;
+    };
+
+    XMLDocumentCB.prototype.attribute = function(name, value) {
+      var attName, attValue;
+      if (!this.currentNode || this.currentNode.children) {
+        throw new Error("att() can only be used immediately after an ele() call in callback mode. " + this.debugInfo(name));
+      }
+      if (name != null) {
+        name = getValue(name);
+      }
+      if (isObject(name)) {
+        for (attName in name) {
+          if (!hasProp.call(name, attName)) continue;
+          attValue = name[attName];
+          this.attribute(attName, attValue);
+        }
+      } else {
+        if (isFunction(value)) {
+          value = value.apply();
+        }
+        if (this.options.keepNullAttributes && (value == null)) {
+          this.currentNode.attribs[name] = new XMLAttribute(this, name, "");
+        } else if (value != null) {
+          this.currentNode.attribs[name] = new XMLAttribute(this, name, value);
+        }
+      }
+      return this;
+    };
+
+    XMLDocumentCB.prototype.text = function(value) {
+      var node;
+      this.openCurrent();
+      node = new XMLText(this, value);
+      this.onData(this.writer.text(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.cdata = function(value) {
+      var node;
+      this.openCurrent();
+      node = new XMLCData(this, value);
+      this.onData(this.writer.cdata(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.comment = function(value) {
+      var node;
+      this.openCurrent();
+      node = new XMLComment(this, value);
+      this.onData(this.writer.comment(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.raw = function(value) {
+      var node;
+      this.openCurrent();
+      node = new XMLRaw(this, value);
+      this.onData(this.writer.raw(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.instruction = function(target, value) {
+      var i, insTarget, insValue, len, node;
+      this.openCurrent();
+      if (target != null) {
+        target = getValue(target);
+      }
+      if (value != null) {
+        value = getValue(value);
+      }
+      if (Array.isArray(target)) {
+        for (i = 0, len = target.length; i < len; i++) {
+          insTarget = target[i];
+          this.instruction(insTarget);
+        }
+      } else if (isObject(target)) {
+        for (insTarget in target) {
+          if (!hasProp.call(target, insTarget)) continue;
+          insValue = target[insTarget];
+          this.instruction(insTarget, insValue);
+        }
+      } else {
+        if (isFunction(value)) {
+          value = value.apply();
+        }
+        node = new XMLProcessingInstruction(this, target, value);
+        this.onData(this.writer.processingInstruction(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      }
+      return this;
+    };
+
+    XMLDocumentCB.prototype.declaration = function(version, encoding, standalone) {
+      var node;
+      this.openCurrent();
+      if (this.documentStarted) {
+        throw new Error("declaration() must be the first node.");
+      }
+      node = new XMLDeclaration(this, version, encoding, standalone);
+      this.onData(this.writer.declaration(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.doctype = function(root, pubID, sysID) {
+      this.openCurrent();
+      if (root == null) {
+        throw new Error("Missing root node name.");
+      }
+      if (this.root) {
+        throw new Error("dtd() must come before the root node.");
+      }
+      this.currentNode = new XMLDocType(this, pubID, sysID);
+      this.currentNode.rootNodeName = root;
+      this.currentNode.children = false;
+      this.currentLevel++;
+      this.openTags[this.currentLevel] = this.currentNode;
+      return this;
+    };
+
+    XMLDocumentCB.prototype.dtdElement = function(name, value) {
+      var node;
+      this.openCurrent();
+      node = new XMLDTDElement(this, name, value);
+      this.onData(this.writer.dtdElement(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.attList = function(elementName, attributeName, attributeType, defaultValueType, defaultValue) {
+      var node;
+      this.openCurrent();
+      node = new XMLDTDAttList(this, elementName, attributeName, attributeType, defaultValueType, defaultValue);
+      this.onData(this.writer.dtdAttList(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.entity = function(name, value) {
+      var node;
+      this.openCurrent();
+      node = new XMLDTDEntity(this, false, name, value);
+      this.onData(this.writer.dtdEntity(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.pEntity = function(name, value) {
+      var node;
+      this.openCurrent();
+      node = new XMLDTDEntity(this, true, name, value);
+      this.onData(this.writer.dtdEntity(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.notation = function(name, value) {
+      var node;
+      this.openCurrent();
+      node = new XMLDTDNotation(this, name, value);
+      this.onData(this.writer.dtdNotation(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
+      return this;
+    };
+
+    XMLDocumentCB.prototype.up = function() {
+      if (this.currentLevel < 0) {
+        throw new Error("The document node has no parent.");
+      }
+      if (this.currentNode) {
+        if (this.currentNode.children) {
+          this.closeNode(this.currentNode);
+        } else {
+          this.openNode(this.currentNode);
+        }
+        this.currentNode = null;
+      } else {
+        this.closeNode(this.openTags[this.currentLevel]);
+      }
+      delete this.openTags[this.currentLevel];
+      this.currentLevel--;
+      return this;
+    };
+
+    XMLDocumentCB.prototype.end = function() {
+      while (this.currentLevel >= 0) {
+        this.up();
+      }
+      return this.onEnd();
+    };
+
+    XMLDocumentCB.prototype.openCurrent = function() {
+      if (this.currentNode) {
+        this.currentNode.children = true;
+        return this.openNode(this.currentNode);
+      }
+    };
+
+    XMLDocumentCB.prototype.openNode = function(node) {
+      var att, chunk, name, ref1;
+      if (!node.isOpen) {
+        if (!this.root && this.currentLevel === 0 && node.type === NodeType.Element) {
+          this.root = node;
+        }
+        chunk = '';
+        if (node.type === NodeType.Element) {
+          this.writerOptions.state = WriterState.OpenTag;
+          chunk = this.writer.indent(node, this.writerOptions, this.currentLevel) + '<' + node.name;
+          ref1 = node.attribs;
+          for (name in ref1) {
+            if (!hasProp.call(ref1, name)) continue;
+            att = ref1[name];
+            chunk += this.writer.attribute(att, this.writerOptions, this.currentLevel);
+          }
+          chunk += (node.children ? '>' : '/>') + this.writer.endline(node, this.writerOptions, this.currentLevel);
+          this.writerOptions.state = WriterState.InsideTag;
+        } else {
+          this.writerOptions.state = WriterState.OpenTag;
+          chunk = this.writer.indent(node, this.writerOptions, this.currentLevel) + '<!DOCTYPE ' + node.rootNodeName;
+          if (node.pubID && node.sysID) {
+            chunk += ' PUBLIC "' + node.pubID + '" "' + node.sysID + '"';
+          } else if (node.sysID) {
+            chunk += ' SYSTEM "' + node.sysID + '"';
+          }
+          if (node.children) {
+            chunk += ' [';
+            this.writerOptions.state = WriterState.InsideTag;
+          } else {
+            this.writerOptions.state = WriterState.CloseTag;
+            chunk += '>';
+          }
+          chunk += this.writer.endline(node, this.writerOptions, this.currentLevel);
+        }
+        this.onData(chunk, this.currentLevel);
+        return node.isOpen = true;
+      }
+    };
+
+    XMLDocumentCB.prototype.closeNode = function(node) {
+      var chunk;
+      if (!node.isClosed) {
+        chunk = '';
+        this.writerOptions.state = WriterState.CloseTag;
+        if (node.type === NodeType.Element) {
+          chunk = this.writer.indent(node, this.writerOptions, this.currentLevel) + '</' + node.name + '>' + this.writer.endline(node, this.writerOptions, this.currentLevel);
+        } else {
+          chunk = this.writer.indent(node, this.writerOptions, this.currentLevel) + ']>' + this.writer.endline(node, this.writerOptions, this.currentLevel);
+        }
+        this.writerOptions.state = WriterState.None;
+        this.onData(chunk, this.currentLevel);
+        return node.isClosed = true;
+      }
+    };
+
+    XMLDocumentCB.prototype.onData = function(chunk, level) {
+      this.documentStarted = true;
+      return this.onDataCallback(chunk, level + 1);
+    };
+
+    XMLDocumentCB.prototype.onEnd = function() {
+      this.documentCompleted = true;
+      return this.onEndCallback();
+    };
+
+    XMLDocumentCB.prototype.debugInfo = function(name) {
+      if (name == null) {
+        return "";
+      } else {
+        return "node: <" + name + ">";
+      }
+    };
+
+    XMLDocumentCB.prototype.ele = function() {
+      return this.element.apply(this, arguments);
+    };
+
+    XMLDocumentCB.prototype.nod = function(name, attributes, text) {
+      return this.node(name, attributes, text);
+    };
+
+    XMLDocumentCB.prototype.txt = function(value) {
+      return this.text(value);
+    };
+
+    XMLDocumentCB.prototype.dat = function(value) {
+      return this.cdata(value);
+    };
+
+    XMLDocumentCB.prototype.com = function(value) {
+      return this.comment(value);
+    };
+
+    XMLDocumentCB.prototype.ins = function(target, value) {
+      return this.instruction(target, value);
+    };
+
+    XMLDocumentCB.prototype.dec = function(version, encoding, standalone) {
+      return this.declaration(version, encoding, standalone);
+    };
+
+    XMLDocumentCB.prototype.dtd = function(root, pubID, sysID) {
+      return this.doctype(root, pubID, sysID);
+    };
+
+    XMLDocumentCB.prototype.e = function(name, attributes, text) {
+      return this.element(name, attributes, text);
+    };
+
+    XMLDocumentCB.prototype.n = function(name, attributes, text) {
+      return this.node(name, attributes, text);
+    };
+
+    XMLDocumentCB.prototype.t = function(value) {
+      return this.text(value);
+    };
+
+    XMLDocumentCB.prototype.d = function(value) {
+      return this.cdata(value);
+    };
+
+    XMLDocumentCB.prototype.c = function(value) {
+      return this.comment(value);
+    };
+
+    XMLDocumentCB.prototype.r = function(value) {
+      return this.raw(value);
+    };
+
+    XMLDocumentCB.prototype.i = function(target, value) {
+      return this.instruction(target, value);
+    };
+
+    XMLDocumentCB.prototype.att = function() {
+      if (this.currentNode && this.currentNode.type === NodeType.DocType) {
+        return this.attList.apply(this, arguments);
+      } else {
+        return this.attribute.apply(this, arguments);
+      }
+    };
+
+    XMLDocumentCB.prototype.a = function() {
+      if (this.currentNode && this.currentNode.type === NodeType.DocType) {
+        return this.attList.apply(this, arguments);
+      } else {
+        return this.attribute.apply(this, arguments);
+      }
+    };
+
+    XMLDocumentCB.prototype.ent = function(name, value) {
+      return this.entity(name, value);
+    };
+
+    XMLDocumentCB.prototype.pent = function(name, value) {
+      return this.pEntity(name, value);
+    };
+
+    XMLDocumentCB.prototype.not = function(name, value) {
+      return this.notation(name, value);
+    };
+
+    return XMLDocumentCB;
+
+  })();
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 566:
+/***/ (function(__unusedmodule, exports) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  exports.defaults = {
+    "0.1": {
+      explicitCharkey: false,
+      trim: true,
+      normalize: true,
+      normalizeTags: false,
+      attrkey: "@",
+      charkey: "#",
+      explicitArray: false,
+      ignoreAttrs: false,
+      mergeAttrs: false,
+      explicitRoot: false,
+      validator: null,
+      xmlns: false,
+      explicitChildren: false,
+      childkey: '@@',
+      charsAsChildren: false,
+      includeWhiteChars: false,
+      async: false,
+      strict: true,
+      attrNameProcessors: null,
+      attrValueProcessors: null,
+      tagNameProcessors: null,
+      valueProcessors: null,
+      emptyTag: ''
+    },
+    "0.2": {
+      explicitCharkey: false,
+      trim: false,
+      normalize: false,
+      normalizeTags: false,
+      attrkey: "$",
+      charkey: "_",
+      explicitArray: true,
+      ignoreAttrs: false,
+      mergeAttrs: false,
+      explicitRoot: true,
+      validator: null,
+      xmlns: false,
+      explicitChildren: false,
+      preserveChildrenOrder: false,
+      childkey: '$$',
+      charsAsChildren: false,
+      includeWhiteChars: false,
+      async: false,
+      strict: true,
+      attrNameProcessors: null,
+      attrValueProcessors: null,
+      tagNameProcessors: null,
+      valueProcessors: null,
+      rootName: 'root',
+      xmldec: {
+        'version': '1.0',
+        'encoding': 'UTF-8',
+        'standalone': true
+      },
+      doctype: null,
+      renderOpts: {
+        'pretty': true,
+        'indent': '  ',
+        'newline': '\n'
+      },
+      headless: false,
+      chunkSize: 10000,
+      emptyTag: '',
+      cdata: false
+    }
+  };
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 571:
+/***/ (function(module) {
+
+"use strict";
+
+module.exports = function (x) {
+	var lf = typeof x === 'string' ? '\n' : '\n'.charCodeAt();
+	var cr = typeof x === 'string' ? '\r' : '\r'.charCodeAt();
+
+	if (x[x.length - 1] === lf) {
+		x = x.slice(0, x.length - 1);
+	}
+
+	if (x[x.length - 1] === cr) {
+		x = x.slice(0, x.length - 1);
+	}
+
+	return x;
+};
+
+
+/***/ }),
+
+/***/ 578:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, XMLDTDElement, XMLNode,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  XMLNode = __webpack_require__(698);
+
+  NodeType = __webpack_require__(65);
+
+  module.exports = XMLDTDElement = (function(superClass) {
+    extend(XMLDTDElement, superClass);
+
+    function XMLDTDElement(parent, name, value) {
+      XMLDTDElement.__super__.constructor.call(this, parent);
+      if (name == null) {
+        throw new Error("Missing DTD element name. " + this.debugInfo());
+      }
+      if (!value) {
+        value = '(#PCDATA)';
+      }
+      if (Array.isArray(value)) {
+        value = '(' + value.join(',') + ')';
+      }
+      this.name = this.stringify.name(name);
+      this.type = NodeType.ElementDeclaration;
+      this.value = this.stringify.dtdElementValue(value);
+    }
+
+    XMLDTDElement.prototype.toString = function(options) {
+      return this.options.writer.dtdElement(this, this.options.writer.filterOptions(options));
+    };
+
+    return XMLDTDElement;
+
+  })(XMLNode);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 582:
+/***/ (function(module) {
+
+module.exports = addHook
+
+function addHook (state, kind, name, hook) {
+  var orig = hook
+  if (!state.registry[name]) {
+    state.registry[name] = []
+  }
+
+  if (kind === 'before') {
+    hook = function (method, options) {
+      return Promise.resolve()
+        .then(orig.bind(null, options))
+        .then(method.bind(null, options))
+    }
+  }
+
+  if (kind === 'after') {
+    hook = function (method, options) {
+      var result
+      return Promise.resolve()
+        .then(method.bind(null, options))
+        .then(function (result_) {
+          result = result_
+          return orig(result, options)
+        })
+        .then(function () {
+          return result
+        })
+    }
+  }
+
+  if (kind === 'error') {
+    hook = function (method, options) {
+      return Promise.resolve()
+        .then(method.bind(null, options))
+        .catch(function (error) {
+          return orig(error, options)
+        })
+    }
+  }
+
+  state.registry[name].push({
+    hook: hook,
+    orig: orig
+  })
+}
+
+
+/***/ }),
+
+/***/ 593:
+/***/ (function(__unusedmodule, exports) {
+
+"use strict";
+
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+class Deprecation extends Error {
+  constructor(message) {
+    super(message); // Maintains proper stack trace (only available on V8)
+
+    /* istanbul ignore next */
+
+    if (Error.captureStackTrace) {
+      Error.captureStackTrace(this, this.constructor);
+    }
+
+    this.name = 'Deprecation';
+  }
+
+}
+
+exports.Deprecation = Deprecation;
+
+
+/***/ }),
+
+/***/ 597:
+/***/ (function(module) {
+
+"use strict";
+
+
+// See http://www.robvanderwoude.com/escapechars.php
+const metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g;
+
+function escapeCommand(arg) {
+    // Escape meta chars
+    arg = arg.replace(metaCharsRegExp, '^$1');
+
+    return arg;
+}
+
+function escapeArgument(arg, doubleEscapeMetaChars) {
+    // Convert to string
+    arg = `${arg}`;
+
+    // Algorithm below is based on https://qntm.org/cmd
+
+    // Sequence of backslashes followed by a double quote:
+    // double up all the backslashes and escape the double quote
+    arg = arg.replace(/(\\*)"/g, '$1$1\\"');
+
+    // Sequence of backslashes followed by the end of the string
+    // (which will become a double quote later):
+    // double up all the backslashes
+    arg = arg.replace(/(\\*)$/, '$1$1');
+
+    // All other backslashes occur literally
+
+    // Quote the whole thing:
+    arg = `"${arg}"`;
+
+    // Escape meta chars
+    arg = arg.replace(metaCharsRegExp, '^$1');
+
+    // Double escape meta chars if necessary
+    if (doubleEscapeMetaChars) {
+        arg = arg.replace(metaCharsRegExp, '^$1');
+    }
+
+    return arg;
+}
+
+module.exports.command = escapeCommand;
+module.exports.argument = escapeArgument;
+
+
+/***/ }),
+
+/***/ 602:
+/***/ (function(module) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var XMLNodeList;
+
+  module.exports = XMLNodeList = (function() {
+    function XMLNodeList(nodes) {
+      this.nodes = nodes;
+    }
+
+    Object.defineProperty(XMLNodeList.prototype, 'length', {
+      get: function() {
+        return this.nodes.length || 0;
+      }
+    });
+
+    XMLNodeList.prototype.clone = function() {
+      return this.nodes = null;
+    };
+
+    XMLNodeList.prototype.item = function(index) {
+      return this.nodes[index] || null;
+    };
+
+    return XMLNodeList;
+
+  })();
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 605:
+/***/ (function(module) {
+
+module.exports = require("http");
+
+/***/ }),
+
+/***/ 614:
+/***/ (function(module) {
+
+module.exports = require("events");
+
+/***/ }),
+
+/***/ 615:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+var path = __webpack_require__(622);
+var fs = __webpack_require__(747);
+var _0777 = parseInt('0777', 8);
+
+module.exports = mkdirP.mkdirp = mkdirP.mkdirP = mkdirP;
+
+function mkdirP (p, opts, f, made) {
+    if (typeof opts === 'function') {
+        f = opts;
+        opts = {};
+    }
+    else if (!opts || typeof opts !== 'object') {
+        opts = { mode: opts };
+    }
+    
+    var mode = opts.mode;
+    var xfs = opts.fs || fs;
+    
+    if (mode === undefined) {
+        mode = _0777
+    }
+    if (!made) made = null;
+    
+    var cb = f || function () {};
+    p = path.resolve(p);
+    
+    xfs.mkdir(p, mode, function (er) {
+        if (!er) {
+            made = made || p;
+            return cb(null, made);
+        }
+        switch (er.code) {
+            case 'ENOENT':
+                if (path.dirname(p) === p) return cb(er);
+                mkdirP(path.dirname(p), opts, function (er, made) {
+                    if (er) cb(er, made);
+                    else mkdirP(p, opts, cb, made);
+                });
+                break;
+
+            // In the case of any other error, just see if there's a dir
+            // there already.  If so, then hooray!  If not, then something
+            // is borked.
+            default:
+                xfs.stat(p, function (er2, stat) {
+                    // if the stat fails, then that's super weird.
+                    // let the original error be the failure reason.
+                    if (er2 || !stat.isDirectory()) cb(er, made)
+                    else cb(null, made);
+                });
+                break;
+        }
+    });
+}
+
+mkdirP.sync = function sync (p, opts, made) {
+    if (!opts || typeof opts !== 'object') {
+        opts = { mode: opts };
+    }
+    
+    var mode = opts.mode;
+    var xfs = opts.fs || fs;
+    
+    if (mode === undefined) {
+        mode = _0777
+    }
+    if (!made) made = null;
+
+    p = path.resolve(p);
+
+    try {
+        xfs.mkdirSync(p, mode);
+        made = made || p;
+    }
+    catch (err0) {
+        switch (err0.code) {
+            case 'ENOENT' :
+                made = sync(path.dirname(p), opts, made);
+                sync(p, opts, made);
+                break;
+
+            // In the case of any other error, just see if there's a dir
+            // there already.  If so, then hooray!  If not, then something
+            // is borked.
+            default:
+                var stat;
+                try {
+                    stat = xfs.statSync(p);
+                }
+                catch (err1) {
+                    throw err0;
+                }
+                if (!stat.isDirectory()) throw err0;
+                break;
+        }
+    }
+
+    return made;
+};
+
+
+/***/ }),
+
+/***/ 622:
+/***/ (function(module) {
+
+module.exports = require("path");
+
+/***/ }),
+
+/***/ 631:
+/***/ (function(module) {
+
+module.exports = require("net");
+
+/***/ }),
+
+/***/ 669:
+/***/ (function(module) {
+
+module.exports = require("util");
+
+/***/ }),
+
+/***/ 691:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+const os = __webpack_require__(87);
+const execa = __webpack_require__(66);
+
+// Reference: https://www.gaijin.at/en/lstwinver.php
+const names = new Map([
+	['10.0', '10'],
+	['6.3', '8.1'],
+	['6.2', '8'],
+	['6.1', '7'],
+	['6.0', 'Vista'],
+	['5.2', 'Server 2003'],
+	['5.1', 'XP'],
+	['5.0', '2000'],
+	['4.9', 'ME'],
+	['4.1', '98'],
+	['4.0', '95']
+]);
+
+const windowsRelease = release => {
+	const version = /\d+\.\d/.exec(release || os.release());
+
+	if (release && !version) {
+		throw new Error('`release` argument doesn\'t match `n.n`');
+	}
+
+	const ver = (version || [])[0];
+
+	// Server 2008, 2012, 2016, and 2019 versions are ambiguous with desktop versions and must be detected at runtime.
+	// If `release` is omitted or we're on a Windows system, and the version number is an ambiguous version
+	// then use `wmic` to get the OS caption: https://msdn.microsoft.com/en-us/library/aa394531(v=vs.85).aspx
+	// If `wmic` is obsoloete (later versions of Windows 10), use PowerShell instead.
+	// If the resulting caption contains the year 2008, 2012, 2016 or 2019, it is a server version, so return a server OS name.
+	if ((!release || release === os.release()) && ['6.1', '6.2', '6.3', '10.0'].includes(ver)) {
+		let stdout;
+		try {
+			stdout = execa.sync('wmic', ['os', 'get', 'Caption']).stdout || '';
+		} catch (_) {
+			stdout = execa.sync('powershell', ['(Get-CimInstance -ClassName Win32_OperatingSystem).caption']).stdout || '';
+		}
+
+		const year = (stdout.match(/2008|2012|2016|2019/) || [])[0];
+
+		if (year) {
+			return `Server ${year}`;
+		}
+	}
+
+	return names.get(ver);
+};
+
+module.exports = windowsRelease;
+
+
+/***/ }),
+
+/***/ 698:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var DocumentPosition, NodeType, XMLCData, XMLComment, XMLDeclaration, XMLDocType, XMLDummy, XMLElement, XMLNamedNodeMap, XMLNode, XMLNodeList, XMLProcessingInstruction, XMLRaw, XMLText, getValue, isEmpty, isFunction, isObject, ref1,
+    hasProp = {}.hasOwnProperty;
+
+  ref1 = __webpack_require__(779), isObject = ref1.isObject, isFunction = ref1.isFunction, isEmpty = ref1.isEmpty, getValue = ref1.getValue;
+
+  XMLElement = null;
+
+  XMLCData = null;
+
+  XMLComment = null;
+
+  XMLDeclaration = null;
+
+  XMLDocType = null;
+
+  XMLRaw = null;
+
+  XMLText = null;
+
+  XMLProcessingInstruction = null;
+
+  XMLDummy = null;
+
+  NodeType = null;
+
+  XMLNodeList = null;
+
+  XMLNamedNodeMap = null;
+
+  DocumentPosition = null;
+
+  module.exports = XMLNode = (function() {
+    function XMLNode(parent1) {
+      this.parent = parent1;
+      if (this.parent) {
+        this.options = this.parent.options;
+        this.stringify = this.parent.stringify;
+      }
+      this.value = null;
+      this.children = [];
+      this.baseURI = null;
+      if (!XMLElement) {
+        XMLElement = __webpack_require__(212);
+        XMLCData = __webpack_require__(525);
+        XMLComment = __webpack_require__(79);
+        XMLDeclaration = __webpack_require__(960);
+        XMLDocType = __webpack_require__(933);
+        XMLRaw = __webpack_require__(253);
+        XMLText = __webpack_require__(800);
+        XMLProcessingInstruction = __webpack_require__(177);
+        XMLDummy = __webpack_require__(865);
+        NodeType = __webpack_require__(65);
+        XMLNodeList = __webpack_require__(602);
+        XMLNamedNodeMap = __webpack_require__(19);
+        DocumentPosition = __webpack_require__(112);
+      }
+    }
+
+    Object.defineProperty(XMLNode.prototype, 'nodeName', {
+      get: function() {
+        return this.name;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'nodeType', {
+      get: function() {
+        return this.type;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'nodeValue', {
+      get: function() {
+        return this.value;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'parentNode', {
+      get: function() {
+        return this.parent;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'childNodes', {
+      get: function() {
+        if (!this.childNodeList || !this.childNodeList.nodes) {
+          this.childNodeList = new XMLNodeList(this.children);
+        }
+        return this.childNodeList;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'firstChild', {
+      get: function() {
+        return this.children[0] || null;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'lastChild', {
+      get: function() {
+        return this.children[this.children.length - 1] || null;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'previousSibling', {
+      get: function() {
+        var i;
+        i = this.parent.children.indexOf(this);
+        return this.parent.children[i - 1] || null;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'nextSibling', {
+      get: function() {
+        var i;
+        i = this.parent.children.indexOf(this);
+        return this.parent.children[i + 1] || null;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'ownerDocument', {
+      get: function() {
+        return this.document() || null;
+      }
+    });
+
+    Object.defineProperty(XMLNode.prototype, 'textContent', {
+      get: function() {
+        var child, j, len, ref2, str;
+        if (this.nodeType === NodeType.Element || this.nodeType === NodeType.DocumentFragment) {
+          str = '';
+          ref2 = this.children;
+          for (j = 0, len = ref2.length; j < len; j++) {
+            child = ref2[j];
+            if (child.textContent) {
+              str += child.textContent;
+            }
+          }
+          return str;
+        } else {
+          return null;
+        }
+      },
+      set: function(value) {
+        throw new Error("This DOM method is not implemented." + this.debugInfo());
+      }
+    });
+
+    XMLNode.prototype.setParent = function(parent) {
+      var child, j, len, ref2, results;
+      this.parent = parent;
+      if (parent) {
+        this.options = parent.options;
+        this.stringify = parent.stringify;
+      }
+      ref2 = this.children;
+      results = [];
+      for (j = 0, len = ref2.length; j < len; j++) {
+        child = ref2[j];
+        results.push(child.setParent(this));
+      }
+      return results;
+    };
+
+    XMLNode.prototype.element = function(name, attributes, text) {
+      var childNode, item, j, k, key, lastChild, len, len1, ref2, ref3, val;
+      lastChild = null;
+      if (attributes === null && (text == null)) {
+        ref2 = [{}, null], attributes = ref2[0], text = ref2[1];
+      }
+      if (attributes == null) {
+        attributes = {};
+      }
+      attributes = getValue(attributes);
+      if (!isObject(attributes)) {
+        ref3 = [attributes, text], text = ref3[0], attributes = ref3[1];
+      }
+      if (name != null) {
+        name = getValue(name);
+      }
+      if (Array.isArray(name)) {
+        for (j = 0, len = name.length; j < len; j++) {
+          item = name[j];
+          lastChild = this.element(item);
+        }
+      } else if (isFunction(name)) {
+        lastChild = this.element(name.apply());
+      } else if (isObject(name)) {
+        for (key in name) {
+          if (!hasProp.call(name, key)) continue;
+          val = name[key];
+          if (isFunction(val)) {
+            val = val.apply();
+          }
+          if (!this.options.ignoreDecorators && this.stringify.convertAttKey && key.indexOf(this.stringify.convertAttKey) === 0) {
+            lastChild = this.attribute(key.substr(this.stringify.convertAttKey.length), val);
+          } else if (!this.options.separateArrayItems && Array.isArray(val) && isEmpty(val)) {
+            lastChild = this.dummy();
+          } else if (isObject(val) && isEmpty(val)) {
+            lastChild = this.element(key);
+          } else if (!this.options.keepNullNodes && (val == null)) {
+            lastChild = this.dummy();
+          } else if (!this.options.separateArrayItems && Array.isArray(val)) {
+            for (k = 0, len1 = val.length; k < len1; k++) {
+              item = val[k];
+              childNode = {};
+              childNode[key] = item;
+              lastChild = this.element(childNode);
+            }
+          } else if (isObject(val)) {
+            if (!this.options.ignoreDecorators && this.stringify.convertTextKey && key.indexOf(this.stringify.convertTextKey) === 0) {
+              lastChild = this.element(val);
+            } else {
+              lastChild = this.element(key);
+              lastChild.element(val);
+            }
+          } else {
+            lastChild = this.element(key, val);
+          }
+        }
+      } else if (!this.options.keepNullNodes && text === null) {
+        lastChild = this.dummy();
+      } else {
+        if (!this.options.ignoreDecorators && this.stringify.convertTextKey && name.indexOf(this.stringify.convertTextKey) === 0) {
+          lastChild = this.text(text);
+        } else if (!this.options.ignoreDecorators && this.stringify.convertCDataKey && name.indexOf(this.stringify.convertCDataKey) === 0) {
+          lastChild = this.cdata(text);
+        } else if (!this.options.ignoreDecorators && this.stringify.convertCommentKey && name.indexOf(this.stringify.convertCommentKey) === 0) {
+          lastChild = this.comment(text);
+        } else if (!this.options.ignoreDecorators && this.stringify.convertRawKey && name.indexOf(this.stringify.convertRawKey) === 0) {
+          lastChild = this.raw(text);
+        } else if (!this.options.ignoreDecorators && this.stringify.convertPIKey && name.indexOf(this.stringify.convertPIKey) === 0) {
+          lastChild = this.instruction(name.substr(this.stringify.convertPIKey.length), text);
+        } else {
+          lastChild = this.node(name, attributes, text);
+        }
+      }
+      if (lastChild == null) {
+        throw new Error("Could not create any elements with: " + name + ". " + this.debugInfo());
+      }
+      return lastChild;
+    };
+
+    XMLNode.prototype.insertBefore = function(name, attributes, text) {
+      var child, i, newChild, refChild, removed;
+      if (name != null ? name.type : void 0) {
+        newChild = name;
+        refChild = attributes;
+        newChild.setParent(this);
+        if (refChild) {
+          i = children.indexOf(refChild);
+          removed = children.splice(i);
+          children.push(newChild);
+          Array.prototype.push.apply(children, removed);
+        } else {
+          children.push(newChild);
+        }
+        return newChild;
+      } else {
+        if (this.isRoot) {
+          throw new Error("Cannot insert elements at root level. " + this.debugInfo(name));
+        }
+        i = this.parent.children.indexOf(this);
+        removed = this.parent.children.splice(i);
+        child = this.parent.element(name, attributes, text);
+        Array.prototype.push.apply(this.parent.children, removed);
+        return child;
+      }
+    };
+
+    XMLNode.prototype.insertAfter = function(name, attributes, text) {
+      var child, i, removed;
+      if (this.isRoot) {
+        throw new Error("Cannot insert elements at root level. " + this.debugInfo(name));
+      }
+      i = this.parent.children.indexOf(this);
+      removed = this.parent.children.splice(i + 1);
+      child = this.parent.element(name, attributes, text);
+      Array.prototype.push.apply(this.parent.children, removed);
+      return child;
+    };
+
+    XMLNode.prototype.remove = function() {
+      var i, ref2;
+      if (this.isRoot) {
+        throw new Error("Cannot remove the root element. " + this.debugInfo());
+      }
+      i = this.parent.children.indexOf(this);
+      [].splice.apply(this.parent.children, [i, i - i + 1].concat(ref2 = [])), ref2;
+      return this.parent;
+    };
+
+    XMLNode.prototype.node = function(name, attributes, text) {
+      var child, ref2;
+      if (name != null) {
+        name = getValue(name);
+      }
+      attributes || (attributes = {});
+      attributes = getValue(attributes);
+      if (!isObject(attributes)) {
+        ref2 = [attributes, text], text = ref2[0], attributes = ref2[1];
+      }
+      child = new XMLElement(this, name, attributes);
+      if (text != null) {
+        child.text(text);
+      }
+      this.children.push(child);
+      return child;
+    };
+
+    XMLNode.prototype.text = function(value) {
+      var child;
+      if (isObject(value)) {
+        this.element(value);
+      }
+      child = new XMLText(this, value);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLNode.prototype.cdata = function(value) {
+      var child;
+      child = new XMLCData(this, value);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLNode.prototype.comment = function(value) {
+      var child;
+      child = new XMLComment(this, value);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLNode.prototype.commentBefore = function(value) {
+      var child, i, removed;
+      i = this.parent.children.indexOf(this);
+      removed = this.parent.children.splice(i);
+      child = this.parent.comment(value);
+      Array.prototype.push.apply(this.parent.children, removed);
+      return this;
+    };
+
+    XMLNode.prototype.commentAfter = function(value) {
+      var child, i, removed;
+      i = this.parent.children.indexOf(this);
+      removed = this.parent.children.splice(i + 1);
+      child = this.parent.comment(value);
+      Array.prototype.push.apply(this.parent.children, removed);
+      return this;
+    };
+
+    XMLNode.prototype.raw = function(value) {
+      var child;
+      child = new XMLRaw(this, value);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLNode.prototype.dummy = function() {
+      var child;
+      child = new XMLDummy(this);
+      return child;
+    };
+
+    XMLNode.prototype.instruction = function(target, value) {
+      var insTarget, insValue, instruction, j, len;
+      if (target != null) {
+        target = getValue(target);
+      }
+      if (value != null) {
+        value = getValue(value);
+      }
+      if (Array.isArray(target)) {
+        for (j = 0, len = target.length; j < len; j++) {
+          insTarget = target[j];
+          this.instruction(insTarget);
+        }
+      } else if (isObject(target)) {
+        for (insTarget in target) {
+          if (!hasProp.call(target, insTarget)) continue;
+          insValue = target[insTarget];
+          this.instruction(insTarget, insValue);
+        }
+      } else {
+        if (isFunction(value)) {
+          value = value.apply();
+        }
+        instruction = new XMLProcessingInstruction(this, target, value);
+        this.children.push(instruction);
+      }
+      return this;
+    };
+
+    XMLNode.prototype.instructionBefore = function(target, value) {
+      var child, i, removed;
+      i = this.parent.children.indexOf(this);
+      removed = this.parent.children.splice(i);
+      child = this.parent.instruction(target, value);
+      Array.prototype.push.apply(this.parent.children, removed);
+      return this;
+    };
+
+    XMLNode.prototype.instructionAfter = function(target, value) {
+      var child, i, removed;
+      i = this.parent.children.indexOf(this);
+      removed = this.parent.children.splice(i + 1);
+      child = this.parent.instruction(target, value);
+      Array.prototype.push.apply(this.parent.children, removed);
+      return this;
+    };
+
+    XMLNode.prototype.declaration = function(version, encoding, standalone) {
+      var doc, xmldec;
+      doc = this.document();
+      xmldec = new XMLDeclaration(doc, version, encoding, standalone);
+      if (doc.children.length === 0) {
+        doc.children.unshift(xmldec);
+      } else if (doc.children[0].type === NodeType.Declaration) {
+        doc.children[0] = xmldec;
+      } else {
+        doc.children.unshift(xmldec);
+      }
+      return doc.root() || doc;
+    };
+
+    XMLNode.prototype.dtd = function(pubID, sysID) {
+      var child, doc, doctype, i, j, k, len, len1, ref2, ref3;
+      doc = this.document();
+      doctype = new XMLDocType(doc, pubID, sysID);
+      ref2 = doc.children;
+      for (i = j = 0, len = ref2.length; j < len; i = ++j) {
+        child = ref2[i];
+        if (child.type === NodeType.DocType) {
+          doc.children[i] = doctype;
+          return doctype;
+        }
+      }
+      ref3 = doc.children;
+      for (i = k = 0, len1 = ref3.length; k < len1; i = ++k) {
+        child = ref3[i];
+        if (child.isRoot) {
+          doc.children.splice(i, 0, doctype);
+          return doctype;
+        }
+      }
+      doc.children.push(doctype);
+      return doctype;
+    };
+
+    XMLNode.prototype.up = function() {
+      if (this.isRoot) {
+        throw new Error("The root node has no parent. Use doc() if you need to get the document object.");
+      }
+      return this.parent;
+    };
+
+    XMLNode.prototype.root = function() {
+      var node;
+      node = this;
+      while (node) {
+        if (node.type === NodeType.Document) {
+          return node.rootObject;
+        } else if (node.isRoot) {
+          return node;
+        } else {
+          node = node.parent;
+        }
+      }
+    };
+
+    XMLNode.prototype.document = function() {
+      var node;
+      node = this;
+      while (node) {
+        if (node.type === NodeType.Document) {
+          return node;
+        } else {
+          node = node.parent;
+        }
+      }
+    };
+
+    XMLNode.prototype.end = function(options) {
+      return this.document().end(options);
+    };
+
+    XMLNode.prototype.prev = function() {
+      var i;
+      i = this.parent.children.indexOf(this);
+      if (i < 1) {
+        throw new Error("Already at the first node. " + this.debugInfo());
+      }
+      return this.parent.children[i - 1];
+    };
+
+    XMLNode.prototype.next = function() {
+      var i;
+      i = this.parent.children.indexOf(this);
+      if (i === -1 || i === this.parent.children.length - 1) {
+        throw new Error("Already at the last node. " + this.debugInfo());
+      }
+      return this.parent.children[i + 1];
+    };
+
+    XMLNode.prototype.importDocument = function(doc) {
+      var clonedRoot;
+      clonedRoot = doc.root().clone();
+      clonedRoot.parent = this;
+      clonedRoot.isRoot = false;
+      this.children.push(clonedRoot);
+      return this;
+    };
+
+    XMLNode.prototype.debugInfo = function(name) {
+      var ref2, ref3;
+      name = name || this.name;
+      if ((name == null) && !((ref2 = this.parent) != null ? ref2.name : void 0)) {
+        return "";
+      } else if (name == null) {
+        return "parent: <" + this.parent.name + ">";
+      } else if (!((ref3 = this.parent) != null ? ref3.name : void 0)) {
+        return "node: <" + name + ">";
+      } else {
+        return "node: <" + name + ">, parent: <" + this.parent.name + ">";
+      }
+    };
+
+    XMLNode.prototype.ele = function(name, attributes, text) {
+      return this.element(name, attributes, text);
+    };
+
+    XMLNode.prototype.nod = function(name, attributes, text) {
+      return this.node(name, attributes, text);
+    };
+
+    XMLNode.prototype.txt = function(value) {
+      return this.text(value);
+    };
+
+    XMLNode.prototype.dat = function(value) {
+      return this.cdata(value);
+    };
+
+    XMLNode.prototype.com = function(value) {
+      return this.comment(value);
+    };
+
+    XMLNode.prototype.ins = function(target, value) {
+      return this.instruction(target, value);
+    };
+
+    XMLNode.prototype.doc = function() {
+      return this.document();
+    };
+
+    XMLNode.prototype.dec = function(version, encoding, standalone) {
+      return this.declaration(version, encoding, standalone);
+    };
+
+    XMLNode.prototype.e = function(name, attributes, text) {
+      return this.element(name, attributes, text);
+    };
+
+    XMLNode.prototype.n = function(name, attributes, text) {
+      return this.node(name, attributes, text);
+    };
+
+    XMLNode.prototype.t = function(value) {
+      return this.text(value);
+    };
+
+    XMLNode.prototype.d = function(value) {
+      return this.cdata(value);
+    };
+
+    XMLNode.prototype.c = function(value) {
+      return this.comment(value);
+    };
+
+    XMLNode.prototype.r = function(value) {
+      return this.raw(value);
+    };
+
+    XMLNode.prototype.i = function(target, value) {
+      return this.instruction(target, value);
+    };
+
+    XMLNode.prototype.u = function() {
+      return this.up();
+    };
+
+    XMLNode.prototype.importXMLBuilder = function(doc) {
+      return this.importDocument(doc);
+    };
+
+    XMLNode.prototype.replaceChild = function(newChild, oldChild) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.removeChild = function(oldChild) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.appendChild = function(newChild) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.hasChildNodes = function() {
+      return this.children.length !== 0;
+    };
+
+    XMLNode.prototype.cloneNode = function(deep) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.normalize = function() {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.isSupported = function(feature, version) {
+      return true;
+    };
+
+    XMLNode.prototype.hasAttributes = function() {
+      return this.attribs.length !== 0;
+    };
+
+    XMLNode.prototype.compareDocumentPosition = function(other) {
+      var ref, res;
+      ref = this;
+      if (ref === other) {
+        return 0;
+      } else if (this.document() !== other.document()) {
+        res = DocumentPosition.Disconnected | DocumentPosition.ImplementationSpecific;
+        if (Math.random() < 0.5) {
+          res |= DocumentPosition.Preceding;
+        } else {
+          res |= DocumentPosition.Following;
+        }
+        return res;
+      } else if (ref.isAncestor(other)) {
+        return DocumentPosition.Contains | DocumentPosition.Preceding;
+      } else if (ref.isDescendant(other)) {
+        return DocumentPosition.Contains | DocumentPosition.Following;
+      } else if (ref.isPreceding(other)) {
+        return DocumentPosition.Preceding;
+      } else {
+        return DocumentPosition.Following;
+      }
+    };
+
+    XMLNode.prototype.isSameNode = function(other) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.lookupPrefix = function(namespaceURI) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.isDefaultNamespace = function(namespaceURI) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.lookupNamespaceURI = function(prefix) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.isEqualNode = function(node) {
+      var i, j, ref2;
+      if (node.nodeType !== this.nodeType) {
+        return false;
+      }
+      if (node.children.length !== this.children.length) {
+        return false;
+      }
+      for (i = j = 0, ref2 = this.children.length - 1; 0 <= ref2 ? j <= ref2 : j >= ref2; i = 0 <= ref2 ? ++j : --j) {
+        if (!this.children[i].isEqualNode(node.children[i])) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+    XMLNode.prototype.getFeature = function(feature, version) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.setUserData = function(key, data, handler) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.getUserData = function(key) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
+
+    XMLNode.prototype.contains = function(other) {
+      if (!other) {
+        return false;
+      }
+      return other === this || this.isDescendant(other);
+    };
+
+    XMLNode.prototype.isDescendant = function(node) {
+      var child, isDescendantChild, j, len, ref2;
+      ref2 = this.children;
+      for (j = 0, len = ref2.length; j < len; j++) {
+        child = ref2[j];
+        if (node === child) {
+          return true;
+        }
+        isDescendantChild = child.isDescendant(node);
+        if (isDescendantChild) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    XMLNode.prototype.isAncestor = function(node) {
+      return node.isDescendant(this);
+    };
+
+    XMLNode.prototype.isPreceding = function(node) {
+      var nodePos, thisPos;
+      nodePos = this.treePosition(node);
+      thisPos = this.treePosition(this);
+      if (nodePos === -1 || thisPos === -1) {
+        return false;
+      } else {
+        return nodePos < thisPos;
+      }
+    };
+
+    XMLNode.prototype.isFollowing = function(node) {
+      var nodePos, thisPos;
+      nodePos = this.treePosition(node);
+      thisPos = this.treePosition(this);
+      if (nodePos === -1 || thisPos === -1) {
+        return false;
+      } else {
+        return nodePos > thisPos;
+      }
+    };
+
+    XMLNode.prototype.treePosition = function(node) {
+      var found, pos;
+      pos = 0;
+      found = false;
+      this.foreachTreeNode(this.document(), function(childNode) {
+        pos++;
+        if (!found && childNode === node) {
+          return found = true;
+        }
+      });
+      if (found) {
+        return pos;
+      } else {
+        return -1;
+      }
+    };
+
+    XMLNode.prototype.foreachTreeNode = function(node, func) {
+      var child, j, len, ref2, res;
+      node || (node = this.document());
+      ref2 = node.children;
+      for (j = 0, len = ref2.length; j < len; j++) {
+        child = ref2[j];
+        if (res = func(child)) {
+          return res;
+        } else {
+          res = this.foreachTreeNode(child, func);
+          if (res) {
+            return res;
+          }
+        }
+      }
+    };
+
+    return XMLNode;
+
+  })();
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 714:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+const fs = __webpack_require__(747);
+const propertyAppender = __webpack_require__(345).propertyAppender;
+
+/**
+ *
+ * @param {String} sourceFile Path to the file from which to read properties
+ * @param {string} [encoding=utf-8] Default string encoding to use when reading files
+ * @param {Function | Object} [propertiesAppender] A `propertiesAppender` function or configuration object to create one
+ */
+function PropertiesReader (sourceFile, encoding, propertiesAppender) {
+   this._encoding = typeof encoding === 'string' && encoding || 'utf-8';
+   this._properties = {};
+   this._propertiesExpanded = {};
+
+   this.appender(propertiesAppender || {});
+   this.append(sourceFile, encoding);
+}
+
+/**
+ * @type {String} The name of a section that should be prefixed on an property as it is added
+ * @ignore
+ */
+PropertiesReader.prototype._section = '';
+
+/**
+ * Gets the number of properties that have been read into this PropertiesReader.
+ *
+ * @name PropertiesReader#length
+ * @type {Number}
+ */
+Object.defineProperty(PropertiesReader.prototype, 'length', {
+   configurable: false,
+   enumerable: false,
+   get () {
+      return Object.keys(this._properties).length;
+   }
+});
+
+/**
+ * Define the property appending mechanism to be used by the instance.
+ *
+ * By default, duplicate sections will be collapsed when saving the properties. To disable this
+ * feature, set the `allowDuplicateSections` appender configuration to `true`:
+ *
+ * ```
+const properties = propertiesReader('file.ini', 'utf-8', { allowDuplicateSections: true });
+const properties = propertiesReader('file.ini').appender({ allowDuplicateSections: true });
+```
+ *
+ * @param appender
+ * @returns {PropertiesReader}
+ */
+PropertiesReader.prototype.appender = function (appender) {
+   if (typeof appender === 'function') {
+      this._propertyAppender = appender;
+   }
+   else if (typeof appender === 'object') {
+      this._propertyAppender = propertyAppender(appender);
+   }
+
+   return this;
+};
+
+/**
+ * Append a file to the properties into the PropertiesReader
+ *
+ * @param {string} sourceFile
+ * @param {string} [encoding='utf-8']
+ *
+ * @return {PropertiesReader} this instance
+ */
+PropertiesReader.prototype.append = function (sourceFile, encoding) {
+
+   if (sourceFile) {
+      this.read(fs.readFileSync(sourceFile, typeof encoding === 'string' && encoding || this._encoding));
+   }
+
+   return this;
+};
+
+/**
+ * Reads any string input into the PropertiesReader
+ *
+ * @param {String} input
+ * @return {PropertiesReader} this instance
+ */
+PropertiesReader.prototype.read = function (input) {
+   delete this._section;
+   ('' + input).split('\n').forEach(this._readLine, this);
+   return this;
+};
+
+/**
+ * Used as a processor for the array of input lines when reading from a source file
+ * @param {String} propertyString
+ */
+PropertiesReader.prototype._readLine = function (propertyString) {
+   if (!!(propertyString = propertyString.trim())) {
+      var section = /^\[([^=]+)]$/.exec(propertyString);
+      var property = !section && /^([^#=]+)(={0,1})(.*)$/.exec(propertyString);
+
+      if (section) {
+         this._section = section[1];
+      }
+      else if (property) {
+         section = this._section ? this._section + '.' : '';
+         this.set(section + property[1].trim(), property[3].trim());
+      }
+   }
+};
+
+/**
+ * Calls the supplied function for each property
+ *
+ * @param {Function} fn
+ * @param {Object} scope
+ * @return {PropertiesReader}
+ */
+PropertiesReader.prototype.each = function (fn, scope) {
+   for (var key in this._properties) {
+      if (this._properties.hasOwnProperty(key)) {
+         fn.call(scope || this, key, this._properties[key]);
+      }
+   }
+   return this;
+};
+
+/**
+ * Given the supplied raw value, returns the parsed value
+ */
+PropertiesReader.prototype._parsed = function (value) {
+
+   if (value !== null && value !== '' && !isNaN(value)) {
+      return +value;
+   }
+
+   if (value === 'true' || value === 'false') {
+      return value === 'true';
+   }
+
+   if (typeof value === "string") {
+      var replacements = {'\\n': '\n', '\\r': '\r', '\\t': '\t'};
+      return value.replace(/\\[nrt]/g, function (key) {
+         return replacements[key];
+      });
+   }
+
+   return value;
+};
+
+/**
+ * Gets a single property value based on the full string key. When the property is not found in the
+ * PropertiesReader, the return value will be null.
+ *
+ * @param {String} key
+ * @return {*}
+ */
+PropertiesReader.prototype.get = function (key) {
+   return this._parsed(this.getRaw(key));
+};
+
+/**
+ * Gets the string representation as it was read from the properties file without coercions for type recognition.
+ *
+ * @param {string} key
+ * @returns {string}
+ */
+PropertiesReader.prototype.getRaw = function (key) {
+   return this._properties.hasOwnProperty(key) ? this._properties[key] : null;
+};
+
+/**
+ * Sets the supplied key in the properties store with the supplied value, the value can be any string representation
+ * that would be valid in a properties file (eg: true and false or numbers are converted to their real values).
+ *
+ * @param {String} key
+ * @param {String} value
+ * @return {PropertiesReader}
+ */
+PropertiesReader.prototype.set = function (key, value) {
+   var parsedValue = ('' + value).trim();
+
+   this._properties = this._propertyAppender(this._properties, key, parsedValue);
+
+   var expanded = key.split('.');
+   var source = this._propertiesExpanded;
+
+   while (expanded.length > 1) {
+      var step = expanded.shift();
+      if (expanded.length >= 1 && typeof source[step] === 'string') {
+         source[step] = {'': source[step]};
+      }
+      source = (source[step] = source[step] || {});
+   }
+
+   if (typeof parsedValue === 'string' && typeof  source[expanded[0]] === 'object') {
+      source[expanded[0]][''] = parsedValue;
+   }
+   else {
+      source[expanded[0]] = parsedValue;
+   }
+
+   return this;
+};
+
+/**
+ * Gets the object that represents the exploded properties.
+ *
+ * Note that this object is currently mutable without the option to persist or interrogate changes.
+ *
+ * @return {*}
+ */
+PropertiesReader.prototype.path = function () {
+   return this._propertiesExpanded;
+};
+
+/**
+ * Gets the object that represents all properties.
+ *
+ * @returns {Object}
+ */
+PropertiesReader.prototype.getAllProperties = function () {
+   var properties = {};
+   this.each(function (key, value) {
+      properties[key] = value;
+   });
+   return properties;
+};
+
+/**
+ * Creates and returns a new PropertiesReader based on the values in this instance.
+ * @return {PropertiesReader}
+ */
+PropertiesReader.prototype.clone = function () {
+   var propertiesReader = new PropertiesReader(null);
+   this.each(propertiesReader.set, propertiesReader);
+
+   return propertiesReader;
+};
+
+/**
+ * Return a json from a root properties
+ * @param root
+ * @returns {{}}
+ */
+PropertiesReader.prototype.getByRoot = function (root) {
+   var keys = Object.keys(this._properties);
+   var outObj = {};
+
+   for (var i = 0, prefixLength = String(root).length; i < keys.length; i++) {
+      var key = keys[i];
+
+      if (key.indexOf(root) === 0 && key.charAt(prefixLength) === '.') {
+         outObj[key.substr(prefixLength + 1)] = this.get(key);
+      }
+   }
+
+   return outObj;
+};
+
+/**
+ * Binds the current properties object and all values in it to the supplied express app.
+ *
+ * @param {Object} app The express app (or any object that has a `set` function)
+ * @param {String} [basePath] The absolute prefix to use for all path properties - defaults to the cwd.
+ * @param {Boolean} [makePaths=false] When true will attempt to create the directory structure to any path property
+ */
+PropertiesReader.prototype.bindToExpress = function (app, basePath, makePaths) {
+   var Path = __webpack_require__(622);
+
+   if (!/\/$/.test(basePath = basePath || process.cwd())) {
+      basePath += '/';
+   }
+
+   this.each(function (key, value) {
+      if (value && /\.(path|dir)$/.test(key)) {
+         value = Path.join(basePath, Path.relative(basePath, value));
+         this.set(key, value);
+
+         try {
+            var directoryPath = /dir$/.test(key) ? value : Path.dirname(value);
+            if (makePaths) {
+               __webpack_require__(615).sync(directoryPath);
+            }
+            else if (!fs.statSync(directoryPath).isDirectory()) {
+               throw new Error("Path is not a directory that already exists");
+            }
+         }
+         catch (e) {
+            throw new Error("Unable to create directory " + value);
+         }
+      }
+
+      app.set(key, this.get(key));
+
+      if (/^browser\./.test(key)) {
+         app.locals[key.substr(8)] = this.get(key);
+      }
+   }, this);
+
+   app.set('properties', this);
+
+   return this;
+};
+
+/**
+ * Stringify properties
+ *
+ * @returns {string[]} array of stringified properties
+ */
+PropertiesReader.prototype._stringifyProperties = function () {
+   var lines = [];
+   var section = null;
+   this.each(function (key, value) {
+      var tokens = key.split('.');
+      if (tokens.length > 1) {
+         if (section !== tokens[0]) {
+            section = tokens[0];
+            lines.push('[' + section + ']');
+         }
+         key = tokens.slice(1).join('.');
+      }
+      else {
+         section = null;
+      }
+
+      lines.push(key + '=' + value);
+   });
+   return lines;
+};
+
+/**
+ * Write properties into the file
+ *
+ * @param {String} destFile
+ * @param {function} onComplete callback
+ */
+PropertiesReader.prototype.save = function (destFile, onComplete) {
+   const content = this._stringifyProperties().join('\n');
+   const onDone = new Promise((done, fail) => {
+      fs.writeFile(destFile, content, (err) => {
+         if (err) {
+            return fail(err);
+         }
+
+         done(content);
+      });
+   });
+
+   if (typeof onComplete === 'function') {
+      if (onComplete.length > 1) {
+         onDone.then(onComplete.bind(null, null), onComplete.bind(null));
+      }
+      else {
+         onDone.then(onComplete)
+      }
+   }
+
+   return onDone;
+};
+
+module.exports = PropertiesReader;
+
+
+/***/ }),
+
+/***/ 717:
 /***/ (function(__unusedmodule, exports, __webpack_require__) {
 
 "use strict";
@@ -3208,8 +9364,8 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
 
-var deprecation = __webpack_require__(44);
-var once = _interopDefault(__webpack_require__(646));
+var deprecation = __webpack_require__(593);
+var once = _interopDefault(__webpack_require__(870));
 
 const logOnce = once(deprecation => console.warn(deprecation));
 /**
@@ -3261,48 +9417,512 @@ exports.RequestError = RequestError;
 
 /***/ }),
 
-/***/ 167:
-/***/ (function(__unusedmodule, exports) {
+/***/ 719:
+/***/ (function(module) {
 
-// Generated by CoffeeScript 1.12.7
-(function() {
-  "use strict";
-  var prefixMatch;
+// Returns a wrapper function that returns a wrapped callback
+// The wrapper function should do some stuff, and return a
+// presumably different callback function.
+// This makes sure that own properties are retained, so that
+// decorations and such are not lost along the way.
+module.exports = wrappy
+function wrappy (fn, cb) {
+  if (fn && cb) return wrappy(fn)(cb)
 
-  prefixMatch = new RegExp(/(?!xmlns)^.*:/);
+  if (typeof fn !== 'function')
+    throw new TypeError('need wrapper function')
 
-  exports.normalize = function(str) {
-    return str.toLowerCase();
-  };
+  Object.keys(fn).forEach(function (k) {
+    wrapper[k] = fn[k]
+  })
 
-  exports.firstCharLowerCase = function(str) {
-    return str.charAt(0).toLowerCase() + str.slice(1);
-  };
+  return wrapper
 
-  exports.stripPrefix = function(str) {
-    return str.replace(prefixMatch, '');
-  };
-
-  exports.parseNumbers = function(str) {
-    if (!isNaN(str)) {
-      str = str % 1 === 0 ? parseInt(str, 10) : parseFloat(str);
+  function wrapper() {
+    var args = new Array(arguments.length)
+    for (var i = 0; i < args.length; i++) {
+      args[i] = arguments[i]
     }
-    return str;
-  };
-
-  exports.parseBooleans = function(str) {
-    if (/^(?:true|false)$/i.test(str)) {
-      str = str.toLowerCase() === 'true';
+    var ret = fn.apply(this, args)
+    var cb = args[args.length-1]
+    if (typeof ret === 'function' && ret !== cb) {
+      Object.keys(cb).forEach(function (k) {
+        ret[k] = cb[k]
+      })
     }
-    return str;
-  };
-
-}).call(this);
+    return ret
+  }
+}
 
 
 /***/ }),
 
-/***/ 170:
+/***/ 740:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+const core = __webpack_require__(827)
+const execCommand = __webpack_require__(204);
+
+var fnInstallSFDX = function(){
+    core.info('=== Downloading and installing SFDX cli ===');
+    execCommand.run('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
+    execCommand.run('mkdir', ['-p', 'sfdx-cli']);
+    execCommand.run('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']);
+    execCommand.run('./sfdx-cli/install', []);
+    core.info('=== SFDX cli installed ===');
+};
+
+module.exports.install = function(command, args) {
+    //Installs Salesforce DX CLI
+    fnInstallSFDX(); 
+
+};
+
+
+/***/ }),
+
+/***/ 747:
+/***/ (function(module) {
+
+module.exports = require("fs");
+
+/***/ }),
+
+/***/ 754:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
+
+var isPlainObject = _interopDefault(__webpack_require__(154));
+var universalUserAgent = __webpack_require__(898);
+
+function lowercaseKeys(object) {
+  if (!object) {
+    return {};
+  }
+
+  return Object.keys(object).reduce((newObj, key) => {
+    newObj[key.toLowerCase()] = object[key];
+    return newObj;
+  }, {});
+}
+
+function mergeDeep(defaults, options) {
+  const result = Object.assign({}, defaults);
+  Object.keys(options).forEach(key => {
+    if (isPlainObject(options[key])) {
+      if (!(key in defaults)) Object.assign(result, {
+        [key]: options[key]
+      });else result[key] = mergeDeep(defaults[key], options[key]);
+    } else {
+      Object.assign(result, {
+        [key]: options[key]
+      });
+    }
+  });
+  return result;
+}
+
+function merge(defaults, route, options) {
+  if (typeof route === "string") {
+    let [method, url] = route.split(" ");
+    options = Object.assign(url ? {
+      method,
+      url
+    } : {
+      url: method
+    }, options);
+  } else {
+    options = Object.assign({}, route);
+  } // lowercase header names before merging with defaults to avoid duplicates
+
+
+  options.headers = lowercaseKeys(options.headers);
+  const mergedOptions = mergeDeep(defaults || {}, options); // mediaType.previews arrays are merged, instead of overwritten
+
+  if (defaults && defaults.mediaType.previews.length) {
+    mergedOptions.mediaType.previews = defaults.mediaType.previews.filter(preview => !mergedOptions.mediaType.previews.includes(preview)).concat(mergedOptions.mediaType.previews);
+  }
+
+  mergedOptions.mediaType.previews = mergedOptions.mediaType.previews.map(preview => preview.replace(/-preview/, ""));
+  return mergedOptions;
+}
+
+function addQueryParameters(url, parameters) {
+  const separator = /\?/.test(url) ? "&" : "?";
+  const names = Object.keys(parameters);
+
+  if (names.length === 0) {
+    return url;
+  }
+
+  return url + separator + names.map(name => {
+    if (name === "q") {
+      return "q=" + parameters.q.split("+").map(encodeURIComponent).join("+");
+    }
+
+    return `${name}=${encodeURIComponent(parameters[name])}`;
+  }).join("&");
+}
+
+const urlVariableRegex = /\{[^}]+\}/g;
+
+function removeNonChars(variableName) {
+  return variableName.replace(/^\W+|\W+$/g, "").split(/,/);
+}
+
+function extractUrlVariableNames(url) {
+  const matches = url.match(urlVariableRegex);
+
+  if (!matches) {
+    return [];
+  }
+
+  return matches.map(removeNonChars).reduce((a, b) => a.concat(b), []);
+}
+
+function omit(object, keysToOmit) {
+  return Object.keys(object).filter(option => !keysToOmit.includes(option)).reduce((obj, key) => {
+    obj[key] = object[key];
+    return obj;
+  }, {});
+}
+
+// Based on https://github.com/bramstein/url-template, licensed under BSD
+// TODO: create separate package.
+//
+// Copyright (c) 2012-2014, Bram Stein
+// All rights reserved.
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions
+// are met:
+//  1. Redistributions of source code must retain the above copyright
+//     notice, this list of conditions and the following disclaimer.
+//  2. Redistributions in binary form must reproduce the above copyright
+//     notice, this list of conditions and the following disclaimer in the
+//     documentation and/or other materials provided with the distribution.
+//  3. The name of the author may not be used to endorse or promote products
+//     derived from this software without specific prior written permission.
+// THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR IMPLIED
+// WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+// MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+// EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+// INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+// EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+/* istanbul ignore file */
+function encodeReserved(str) {
+  return str.split(/(%[0-9A-Fa-f]{2})/g).map(function (part) {
+    if (!/%[0-9A-Fa-f]/.test(part)) {
+      part = encodeURI(part).replace(/%5B/g, "[").replace(/%5D/g, "]");
+    }
+
+    return part;
+  }).join("");
+}
+
+function encodeUnreserved(str) {
+  return encodeURIComponent(str).replace(/[!'()*]/g, function (c) {
+    return "%" + c.charCodeAt(0).toString(16).toUpperCase();
+  });
+}
+
+function encodeValue(operator, value, key) {
+  value = operator === "+" || operator === "#" ? encodeReserved(value) : encodeUnreserved(value);
+
+  if (key) {
+    return encodeUnreserved(key) + "=" + value;
+  } else {
+    return value;
+  }
+}
+
+function isDefined(value) {
+  return value !== undefined && value !== null;
+}
+
+function isKeyOperator(operator) {
+  return operator === ";" || operator === "&" || operator === "?";
+}
+
+function getValues(context, operator, key, modifier) {
+  var value = context[key],
+      result = [];
+
+  if (isDefined(value) && value !== "") {
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      value = value.toString();
+
+      if (modifier && modifier !== "*") {
+        value = value.substring(0, parseInt(modifier, 10));
+      }
+
+      result.push(encodeValue(operator, value, isKeyOperator(operator) ? key : ""));
+    } else {
+      if (modifier === "*") {
+        if (Array.isArray(value)) {
+          value.filter(isDefined).forEach(function (value) {
+            result.push(encodeValue(operator, value, isKeyOperator(operator) ? key : ""));
+          });
+        } else {
+          Object.keys(value).forEach(function (k) {
+            if (isDefined(value[k])) {
+              result.push(encodeValue(operator, value[k], k));
+            }
+          });
+        }
+      } else {
+        const tmp = [];
+
+        if (Array.isArray(value)) {
+          value.filter(isDefined).forEach(function (value) {
+            tmp.push(encodeValue(operator, value));
+          });
+        } else {
+          Object.keys(value).forEach(function (k) {
+            if (isDefined(value[k])) {
+              tmp.push(encodeUnreserved(k));
+              tmp.push(encodeValue(operator, value[k].toString()));
+            }
+          });
+        }
+
+        if (isKeyOperator(operator)) {
+          result.push(encodeUnreserved(key) + "=" + tmp.join(","));
+        } else if (tmp.length !== 0) {
+          result.push(tmp.join(","));
+        }
+      }
+    }
+  } else {
+    if (operator === ";") {
+      if (isDefined(value)) {
+        result.push(encodeUnreserved(key));
+      }
+    } else if (value === "" && (operator === "&" || operator === "?")) {
+      result.push(encodeUnreserved(key) + "=");
+    } else if (value === "") {
+      result.push("");
+    }
+  }
+
+  return result;
+}
+
+function parseUrl(template) {
+  return {
+    expand: expand.bind(null, template)
+  };
+}
+
+function expand(template, context) {
+  var operators = ["+", "#", ".", "/", ";", "?", "&"];
+  return template.replace(/\{([^\{\}]+)\}|([^\{\}]+)/g, function (_, expression, literal) {
+    if (expression) {
+      let operator = "";
+      const values = [];
+
+      if (operators.indexOf(expression.charAt(0)) !== -1) {
+        operator = expression.charAt(0);
+        expression = expression.substr(1);
+      }
+
+      expression.split(/,/g).forEach(function (variable) {
+        var tmp = /([^:\*]*)(?::(\d+)|(\*))?/.exec(variable);
+        values.push(getValues(context, operator, tmp[1], tmp[2] || tmp[3]));
+      });
+
+      if (operator && operator !== "+") {
+        var separator = ",";
+
+        if (operator === "?") {
+          separator = "&";
+        } else if (operator !== "#") {
+          separator = operator;
+        }
+
+        return (values.length !== 0 ? operator : "") + values.join(separator);
+      } else {
+        return values.join(",");
+      }
+    } else {
+      return encodeReserved(literal);
+    }
+  });
+}
+
+function parse(options) {
+  // https://fetch.spec.whatwg.org/#methods
+  let method = options.method.toUpperCase(); // replace :varname with {varname} to make it RFC 6570 compatible
+
+  let url = (options.url || "/").replace(/:([a-z]\w+)/g, "{+$1}");
+  let headers = Object.assign({}, options.headers);
+  let body;
+  let parameters = omit(options, ["method", "baseUrl", "url", "headers", "request", "mediaType"]); // extract variable names from URL to calculate remaining variables later
+
+  const urlVariableNames = extractUrlVariableNames(url);
+  url = parseUrl(url).expand(parameters);
+
+  if (!/^http/.test(url)) {
+    url = options.baseUrl + url;
+  }
+
+  const omittedParameters = Object.keys(options).filter(option => urlVariableNames.includes(option)).concat("baseUrl");
+  const remainingParameters = omit(parameters, omittedParameters);
+  const isBinaryRequset = /application\/octet-stream/i.test(headers.accept);
+
+  if (!isBinaryRequset) {
+    if (options.mediaType.format) {
+      // e.g. application/vnd.github.v3+json => application/vnd.github.v3.raw
+      headers.accept = headers.accept.split(/,/).map(preview => preview.replace(/application\/vnd(\.\w+)(\.v3)?(\.\w+)?(\+json)?$/, `application/vnd$1$2.${options.mediaType.format}`)).join(",");
+    }
+
+    if (options.mediaType.previews.length) {
+      const previewsFromAcceptHeader = headers.accept.match(/[\w-]+(?=-preview)/g) || [];
+      headers.accept = previewsFromAcceptHeader.concat(options.mediaType.previews).map(preview => {
+        const format = options.mediaType.format ? `.${options.mediaType.format}` : "+json";
+        return `application/vnd.github.${preview}-preview${format}`;
+      }).join(",");
+    }
+  } // for GET/HEAD requests, set URL query parameters from remaining parameters
+  // for PATCH/POST/PUT/DELETE requests, set request body from remaining parameters
+
+
+  if (["GET", "HEAD"].includes(method)) {
+    url = addQueryParameters(url, remainingParameters);
+  } else {
+    if ("data" in remainingParameters) {
+      body = remainingParameters.data;
+    } else {
+      if (Object.keys(remainingParameters).length) {
+        body = remainingParameters;
+      } else {
+        headers["content-length"] = 0;
+      }
+    }
+  } // default content-type for JSON if body is set
+
+
+  if (!headers["content-type"] && typeof body !== "undefined") {
+    headers["content-type"] = "application/json; charset=utf-8";
+  } // GitHub expects 'content-length: 0' header for PUT/PATCH requests without body.
+  // fetch does not allow to set `content-length` header, but we can set body to an empty string
+
+
+  if (["PATCH", "PUT"].includes(method) && typeof body === "undefined") {
+    body = "";
+  } // Only return body/request keys if present
+
+
+  return Object.assign({
+    method,
+    url,
+    headers
+  }, typeof body !== "undefined" ? {
+    body
+  } : null, options.request ? {
+    request: options.request
+  } : null);
+}
+
+function endpointWithDefaults(defaults, route, options) {
+  return parse(merge(defaults, route, options));
+}
+
+function withDefaults(oldDefaults, newDefaults) {
+  const DEFAULTS = merge(oldDefaults, newDefaults);
+  const endpoint = endpointWithDefaults.bind(null, DEFAULTS);
+  return Object.assign(endpoint, {
+    DEFAULTS,
+    defaults: withDefaults.bind(null, DEFAULTS),
+    merge: merge.bind(null, DEFAULTS),
+    parse
+  });
+}
+
+const VERSION = "6.0.3";
+
+const userAgent = `octokit-endpoint.js/${VERSION} ${universalUserAgent.getUserAgent()}`; // DEFAULTS has all properties set that EndpointOptions has, except url.
+// So we use RequestParameters and add method as additional required property.
+
+const DEFAULTS = {
+  method: "GET",
+  baseUrl: "https://api.github.com",
+  headers: {
+    accept: "application/vnd.github.v3+json",
+    "user-agent": userAgent
+  },
+  mediaType: {
+    format: "",
+    previews: []
+  }
+};
+
+const endpoint = withDefaults(null, DEFAULTS);
+
+exports.endpoint = endpoint;
+//# sourceMappingURL=index.js.map
+
+
+/***/ }),
+
+/***/ 761:
+/***/ (function(module) {
+
+module.exports = require("zlib");
+
+/***/ }),
+
+/***/ 767:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+"use strict";
+
+const os = __webpack_require__(87);
+
+const nameMap = new Map([
+	[19, 'Catalina'],
+	[18, 'Mojave'],
+	[17, 'High Sierra'],
+	[16, 'Sierra'],
+	[15, 'El Capitan'],
+	[14, 'Yosemite'],
+	[13, 'Mavericks'],
+	[12, 'Mountain Lion'],
+	[11, 'Lion'],
+	[10, 'Snow Leopard'],
+	[9, 'Leopard'],
+	[8, 'Tiger'],
+	[7, 'Panther'],
+	[6, 'Jaguar'],
+	[5, 'Puma']
+]);
+
+const macosRelease = release => {
+	release = Number((release || os.release()).split('.')[0]);
+	return {
+		name: nameMap.get(release),
+		version: '10.' + (release - 4)
+	};
+};
+
+module.exports = macosRelease;
+// TODO: remove this in the next major version
+module.exports.default = macosRelease;
+
+
+/***/ }),
+
+/***/ 770:
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3467,7 +10087,7 @@ FetchError.prototype.name = 'FetchError';
 
 let convert;
 try {
-	convert = __webpack_require__(613).convert;
+	convert = __webpack_require__(110).convert;
 } catch (e) {}
 
 const INTERNALS = Symbol('Body internals');
@@ -4952,713 +11572,328 @@ exports.FetchError = FetchError;
 
 /***/ }),
 
-/***/ 173:
+/***/ 776:
 /***/ (function(module) {
 
-"use strict";
+// This is not the set of all possible signals.
+//
+// It IS, however, the set of all signals that trigger
+// an exit on either Linux or BSD systems.  Linux is a
+// superset of the signal names supported on BSD, and
+// the unknown signals just fail to register, so we can
+// catch that easily enough.
+//
+// Don't bother with SIGKILL.  It's uncatchable, which
+// means that we can't fire any callbacks anyway.
+//
+// If a user does happen to register a handler on a non-
+// fatal signal like SIGWINCH or something, and then
+// exit, it'll end up firing `process.emit('exit')`, so
+// the handler will be fired anyway.
+//
+// SIGBUS, SIGFPE, SIGSEGV and SIGILL, when not raised
+// artificially, inherently leave the process in a
+// state from which it is not safe to try and enter JS
+// listeners.
+module.exports = [
+  'SIGABRT',
+  'SIGALRM',
+  'SIGHUP',
+  'SIGINT',
+  'SIGTERM'
+]
 
-const alias = ['stdin', 'stdout', 'stderr'];
+if (process.platform !== 'win32') {
+  module.exports.push(
+    'SIGVTALRM',
+    'SIGXCPU',
+    'SIGXFSZ',
+    'SIGUSR2',
+    'SIGTRAP',
+    'SIGSYS',
+    'SIGQUIT',
+    'SIGIOT'
+    // should detect profiler and enable/disable accordingly.
+    // see #21
+    // 'SIGPROF'
+  )
+}
 
-const hasAlias = opts => alias.some(x => Boolean(opts[x]));
-
-module.exports = opts => {
-	if (!opts) {
-		return null;
-	}
-
-	if (opts.stdio && hasAlias(opts)) {
-		throw new Error(`It's not possible to provide \`stdio\` in combination with one of ${alias.map(x => `\`${x}\``).join(', ')}`);
-	}
-
-	if (typeof opts.stdio === 'string') {
-		return opts.stdio;
-	}
-
-	const stdio = opts.stdio || [];
-
-	if (!Array.isArray(stdio)) {
-		throw new TypeError(`Expected \`stdio\` to be of type \`string\` or \`Array\`, got \`${typeof stdio}\``);
-	}
-
-	const result = [];
-	const len = Math.max(stdio.length, alias.length);
-
-	for (let i = 0; i < len; i++) {
-		let value = null;
-
-		if (stdio[i] !== undefined) {
-			value = stdio[i];
-		} else if (opts[alias[i]] !== undefined) {
-			value = opts[alias[i]];
-		}
-
-		result[i] = value;
-	}
-
-	return result;
-};
+if (process.platform === 'linux') {
+  module.exports.push(
+    'SIGIO',
+    'SIGPOLL',
+    'SIGPWR',
+    'SIGSTKFLT',
+    'SIGUNUSED'
+  )
+}
 
 
 /***/ }),
 
-/***/ 180:
+/***/ 779:
 /***/ (function(module) {
-
-"use strict";
-
-module.exports = /^#!.*/;
-
-
-/***/ }),
-
-/***/ 188:
-/***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
-  var NodeType, XMLDTDElement, XMLNode,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+  var assign, getValue, isArray, isEmpty, isFunction, isObject, isPlainObject,
+    slice = [].slice,
     hasProp = {}.hasOwnProperty;
 
-  XMLNode = __webpack_require__(828);
-
-  NodeType = __webpack_require__(700);
-
-  module.exports = XMLDTDElement = (function(superClass) {
-    extend(XMLDTDElement, superClass);
-
-    function XMLDTDElement(parent, name, value) {
-      XMLDTDElement.__super__.constructor.call(this, parent);
-      if (name == null) {
-        throw new Error("Missing DTD element name. " + this.debugInfo());
-      }
-      if (!value) {
-        value = '(#PCDATA)';
-      }
-      if (Array.isArray(value)) {
-        value = '(' + value.join(',') + ')';
-      }
-      this.name = this.stringify.name(name);
-      this.type = NodeType.ElementDeclaration;
-      this.value = this.stringify.dtdElementValue(value);
-    }
-
-    XMLDTDElement.prototype.toString = function(options) {
-      return this.options.writer.dtdElement(this, this.options.writer.filterOptions(options));
-    };
-
-    return XMLDTDElement;
-
-  })(XMLNode);
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 193:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, XMLCharacterData, XMLProcessingInstruction,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  NodeType = __webpack_require__(700);
-
-  XMLCharacterData = __webpack_require__(55);
-
-  module.exports = XMLProcessingInstruction = (function(superClass) {
-    extend(XMLProcessingInstruction, superClass);
-
-    function XMLProcessingInstruction(parent, target, value) {
-      XMLProcessingInstruction.__super__.constructor.call(this, parent);
-      if (target == null) {
-        throw new Error("Missing instruction target. " + this.debugInfo());
-      }
-      this.type = NodeType.ProcessingInstruction;
-      this.target = this.stringify.insTarget(target);
-      this.name = this.target;
-      if (value) {
-        this.value = this.stringify.insValue(value);
+  assign = function() {
+    var i, key, len, source, sources, target;
+    target = arguments[0], sources = 2 <= arguments.length ? slice.call(arguments, 1) : [];
+    if (isFunction(Object.assign)) {
+      Object.assign.apply(null, arguments);
+    } else {
+      for (i = 0, len = sources.length; i < len; i++) {
+        source = sources[i];
+        if (source != null) {
+          for (key in source) {
+            if (!hasProp.call(source, key)) continue;
+            target[key] = source[key];
+          }
+        }
       }
     }
+    return target;
+  };
 
-    XMLProcessingInstruction.prototype.clone = function() {
-      return Object.create(this);
-    };
+  isFunction = function(val) {
+    return !!val && Object.prototype.toString.call(val) === '[object Function]';
+  };
 
-    XMLProcessingInstruction.prototype.toString = function(options) {
-      return this.options.writer.processingInstruction(this, this.options.writer.filterOptions(options));
-    };
+  isObject = function(val) {
+    var ref;
+    return !!val && ((ref = typeof val) === 'function' || ref === 'object');
+  };
 
-    XMLProcessingInstruction.prototype.isEqualNode = function(node) {
-      if (!XMLProcessingInstruction.__super__.isEqualNode.apply(this, arguments).isEqualNode(node)) {
-        return false;
-      }
-      if (node.target !== this.target) {
+  isArray = function(val) {
+    if (isFunction(Array.isArray)) {
+      return Array.isArray(val);
+    } else {
+      return Object.prototype.toString.call(val) === '[object Array]';
+    }
+  };
+
+  isEmpty = function(val) {
+    var key;
+    if (isArray(val)) {
+      return !val.length;
+    } else {
+      for (key in val) {
+        if (!hasProp.call(val, key)) continue;
         return false;
       }
       return true;
-    };
+    }
+  };
 
-    return XMLProcessingInstruction;
+  isPlainObject = function(val) {
+    var ctor, proto;
+    return isObject(val) && (proto = Object.getPrototypeOf(val)) && (ctor = proto.constructor) && (typeof ctor === 'function') && (ctor instanceof ctor) && (Function.prototype.toString.call(ctor) === Function.prototype.toString.call(Object));
+  };
 
-  })(XMLCharacterData);
+  getValue = function(obj) {
+    if (isFunction(obj.valueOf)) {
+      return obj.valueOf();
+    } else {
+      return obj;
+    }
+  };
+
+  module.exports.assign = assign;
+
+  module.exports.isFunction = isFunction;
+
+  module.exports.isObject = isObject;
+
+  module.exports.isArray = isArray;
+
+  module.exports.isEmpty = isEmpty;
+
+  module.exports.isPlainObject = isPlainObject;
+
+  module.exports.getValue = getValue;
 
 }).call(this);
 
 
 /***/ }),
 
-/***/ 203:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-
-const path = __webpack_require__(622);
-const niceTry = __webpack_require__(930);
-const resolveCommand = __webpack_require__(323);
-const escape = __webpack_require__(953);
-const readShebang = __webpack_require__(656);
-const semver = __webpack_require__(457);
-
-const isWin = process.platform === 'win32';
-const isExecutableRegExp = /\.(?:com|exe)$/i;
-const isCmdShimRegExp = /node_modules[\\/].bin[\\/][^\\/]+\.cmd$/i;
-
-// `options.shell` is supported in Node ^4.8.0, ^5.7.0 and >= 6.0.0
-const supportsShellOption = niceTry(() => semver.satisfies(process.version, '^4.8.0 || ^5.7.0 || >= 6.0.0', true)) || false;
-
-function detectShebang(parsed) {
-    parsed.file = resolveCommand(parsed);
-
-    const shebang = parsed.file && readShebang(parsed.file);
-
-    if (shebang) {
-        parsed.args.unshift(parsed.file);
-        parsed.command = shebang;
-
-        return resolveCommand(parsed);
-    }
-
-    return parsed.file;
-}
-
-function parseNonShell(parsed) {
-    if (!isWin) {
-        return parsed;
-    }
-
-    // Detect & add support for shebangs
-    const commandFile = detectShebang(parsed);
-
-    // We don't need a shell if the command filename is an executable
-    const needsShell = !isExecutableRegExp.test(commandFile);
-
-    // If a shell is required, use cmd.exe and take care of escaping everything correctly
-    // Note that `forceShell` is an hidden option used only in tests
-    if (parsed.options.forceShell || needsShell) {
-        // Need to double escape meta chars if the command is a cmd-shim located in `node_modules/.bin/`
-        // The cmd-shim simply calls execute the package bin file with NodeJS, proxying any argument
-        // Because the escape of metachars with ^ gets interpreted when the cmd.exe is first called,
-        // we need to double escape them
-        const needsDoubleEscapeMetaChars = isCmdShimRegExp.test(commandFile);
-
-        // Normalize posix paths into OS compatible paths (e.g.: foo/bar -> foo\bar)
-        // This is necessary otherwise it will always fail with ENOENT in those cases
-        parsed.command = path.normalize(parsed.command);
-
-        // Escape command & arguments
-        parsed.command = escape.command(parsed.command);
-        parsed.args = parsed.args.map((arg) => escape.argument(arg, needsDoubleEscapeMetaChars));
-
-        const shellCommand = [parsed.command].concat(parsed.args).join(' ');
-
-        parsed.args = ['/d', '/s', '/c', `"${shellCommand}"`];
-        parsed.command = process.env.comspec || 'cmd.exe';
-        parsed.options.windowsVerbatimArguments = true; // Tell node's spawn that the arguments are already escaped
-    }
-
-    return parsed;
-}
-
-function parseShell(parsed) {
-    // If node supports the shell option, there's no need to mimic its behavior
-    if (supportsShellOption) {
-        return parsed;
-    }
-
-    // Mimic node shell option
-    // See https://github.com/nodejs/node/blob/b9f6a2dc059a1062776133f3d4fd848c4da7d150/lib/child_process.js#L335
-    const shellCommand = [parsed.command].concat(parsed.args).join(' ');
-
-    if (isWin) {
-        parsed.command = typeof parsed.options.shell === 'string' ? parsed.options.shell : process.env.comspec || 'cmd.exe';
-        parsed.args = ['/d', '/s', '/c', `"${shellCommand}"`];
-        parsed.options.windowsVerbatimArguments = true; // Tell node's spawn that the arguments are already escaped
-    } else {
-        if (typeof parsed.options.shell === 'string') {
-            parsed.command = parsed.options.shell;
-        } else if (process.platform === 'android') {
-            parsed.command = '/system/bin/sh';
-        } else {
-            parsed.command = '/bin/sh';
-        }
-
-        parsed.args = ['-c', shellCommand];
-    }
-
-    return parsed;
-}
-
-function parse(command, args, options) {
-    // Normalize arguments, similar to nodejs
-    if (args && !Array.isArray(args)) {
-        options = args;
-        args = null;
-    }
-
-    args = args ? args.slice(0) : []; // Clone array to avoid changing the original
-    options = Object.assign({}, options); // Clone object to avoid changing the original
-
-    // Build our parsed object
-    const parsed = {
-        command,
-        args,
-        options,
-        file: undefined,
-        original: {
-            command,
-            args,
-        },
-    };
-
-    // Delegate further parsing to shell or non-shell
-    return options.shell ? parseShell(parsed) : parseNonShell(parsed);
-}
-
-module.exports = parse;
-
-
-/***/ }),
-
-/***/ 206:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-var once = __webpack_require__(646);
-
-var noop = function() {};
-
-var isRequest = function(stream) {
-	return stream.setHeader && typeof stream.abort === 'function';
-};
-
-var isChildProcess = function(stream) {
-	return stream.stdio && Array.isArray(stream.stdio) && stream.stdio.length === 3
-};
-
-var eos = function(stream, opts, callback) {
-	if (typeof opts === 'function') return eos(stream, null, opts);
-	if (!opts) opts = {};
-
-	callback = once(callback || noop);
-
-	var ws = stream._writableState;
-	var rs = stream._readableState;
-	var readable = opts.readable || (opts.readable !== false && stream.readable);
-	var writable = opts.writable || (opts.writable !== false && stream.writable);
-	var cancelled = false;
-
-	var onlegacyfinish = function() {
-		if (!stream.writable) onfinish();
-	};
-
-	var onfinish = function() {
-		writable = false;
-		if (!readable) callback.call(stream);
-	};
-
-	var onend = function() {
-		readable = false;
-		if (!writable) callback.call(stream);
-	};
-
-	var onexit = function(exitCode) {
-		callback.call(stream, exitCode ? new Error('exited with error code: ' + exitCode) : null);
-	};
-
-	var onerror = function(err) {
-		callback.call(stream, err);
-	};
-
-	var onclose = function() {
-		process.nextTick(onclosenexttick);
-	};
-
-	var onclosenexttick = function() {
-		if (cancelled) return;
-		if (readable && !(rs && (rs.ended && !rs.destroyed))) return callback.call(stream, new Error('premature close'));
-		if (writable && !(ws && (ws.ended && !ws.destroyed))) return callback.call(stream, new Error('premature close'));
-	};
-
-	var onrequest = function() {
-		stream.req.on('finish', onfinish);
-	};
-
-	if (isRequest(stream)) {
-		stream.on('complete', onfinish);
-		stream.on('abort', onclose);
-		if (stream.req) onrequest();
-		else stream.on('request', onrequest);
-	} else if (writable && !ws) { // legacy streams
-		stream.on('end', onlegacyfinish);
-		stream.on('close', onlegacyfinish);
-	}
-
-	if (isChildProcess(stream)) stream.on('exit', onexit);
-
-	stream.on('end', onend);
-	stream.on('finish', onfinish);
-	if (opts.error !== false) stream.on('error', onerror);
-	stream.on('close', onclose);
-
-	return function() {
-		cancelled = true;
-		stream.removeListener('complete', onfinish);
-		stream.removeListener('abort', onclose);
-		stream.removeListener('request', onrequest);
-		if (stream.req) stream.req.removeListener('finish', onfinish);
-		stream.removeListener('end', onlegacyfinish);
-		stream.removeListener('close', onlegacyfinish);
-		stream.removeListener('finish', onfinish);
-		stream.removeListener('exit', onexit);
-		stream.removeListener('end', onend);
-		stream.removeListener('error', onerror);
-		stream.removeListener('close', onclose);
-	};
-};
-
-module.exports = eos;
-
-
-/***/ }),
-
-/***/ 211:
-/***/ (function(module) {
-
-module.exports = require("https");
-
-/***/ }),
-
-/***/ 213:
-/***/ (function(module) {
-
-module.exports = require("timers");
-
-/***/ }),
-
-/***/ 250:
+/***/ 800:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
-  var NodeType, XMLCharacterData, XMLComment,
+  var NodeType, XMLCharacterData, XMLText,
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  NodeType = __webpack_require__(700);
+  NodeType = __webpack_require__(65);
 
-  XMLCharacterData = __webpack_require__(55);
+  XMLCharacterData = __webpack_require__(245);
 
-  module.exports = XMLComment = (function(superClass) {
-    extend(XMLComment, superClass);
+  module.exports = XMLText = (function(superClass) {
+    extend(XMLText, superClass);
 
-    function XMLComment(parent, text) {
-      XMLComment.__super__.constructor.call(this, parent);
+    function XMLText(parent, text) {
+      XMLText.__super__.constructor.call(this, parent);
       if (text == null) {
-        throw new Error("Missing comment text. " + this.debugInfo());
+        throw new Error("Missing element text. " + this.debugInfo());
       }
-      this.name = "#comment";
-      this.type = NodeType.Comment;
-      this.value = this.stringify.comment(text);
+      this.name = "#text";
+      this.type = NodeType.Text;
+      this.value = this.stringify.text(text);
     }
 
-    XMLComment.prototype.clone = function() {
-      return Object.create(this);
-    };
-
-    XMLComment.prototype.toString = function(options) {
-      return this.options.writer.comment(this, this.options.writer.filterOptions(options));
-    };
-
-    return XMLComment;
-
-  })(XMLCharacterData);
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 256:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  "use strict";
-  var builder, defaults, escapeCDATA, requiresCDATA, wrapCDATA,
-    hasProp = {}.hasOwnProperty;
-
-  builder = __webpack_require__(699);
-
-  defaults = __webpack_require__(705).defaults;
-
-  requiresCDATA = function(entry) {
-    return typeof entry === "string" && (entry.indexOf('&') >= 0 || entry.indexOf('>') >= 0 || entry.indexOf('<') >= 0);
-  };
-
-  wrapCDATA = function(entry) {
-    return "<![CDATA[" + (escapeCDATA(entry)) + "]]>";
-  };
-
-  escapeCDATA = function(entry) {
-    return entry.replace(']]>', ']]]]><![CDATA[>');
-  };
-
-  exports.Builder = (function() {
-    function Builder(opts) {
-      var key, ref, value;
-      this.options = {};
-      ref = defaults["0.2"];
-      for (key in ref) {
-        if (!hasProp.call(ref, key)) continue;
-        value = ref[key];
-        this.options[key] = value;
-      }
-      for (key in opts) {
-        if (!hasProp.call(opts, key)) continue;
-        value = opts[key];
-        this.options[key] = value;
-      }
-    }
-
-    Builder.prototype.buildObject = function(rootObj) {
-      var attrkey, charkey, render, rootElement, rootName;
-      attrkey = this.options.attrkey;
-      charkey = this.options.charkey;
-      if ((Object.keys(rootObj).length === 1) && (this.options.rootName === defaults['0.2'].rootName)) {
-        rootName = Object.keys(rootObj)[0];
-        rootObj = rootObj[rootName];
-      } else {
-        rootName = this.options.rootName;
-      }
-      render = (function(_this) {
-        return function(element, obj) {
-          var attr, child, entry, index, key, value;
-          if (typeof obj !== 'object') {
-            if (_this.options.cdata && requiresCDATA(obj)) {
-              element.raw(wrapCDATA(obj));
-            } else {
-              element.txt(obj);
-            }
-          } else if (Array.isArray(obj)) {
-            for (index in obj) {
-              if (!hasProp.call(obj, index)) continue;
-              child = obj[index];
-              for (key in child) {
-                entry = child[key];
-                element = render(element.ele(key), entry).up();
-              }
-            }
-          } else {
-            for (key in obj) {
-              if (!hasProp.call(obj, key)) continue;
-              child = obj[key];
-              if (key === attrkey) {
-                if (typeof child === "object") {
-                  for (attr in child) {
-                    value = child[attr];
-                    element = element.att(attr, value);
-                  }
-                }
-              } else if (key === charkey) {
-                if (_this.options.cdata && requiresCDATA(child)) {
-                  element = element.raw(wrapCDATA(child));
-                } else {
-                  element = element.txt(child);
-                }
-              } else if (Array.isArray(child)) {
-                for (index in child) {
-                  if (!hasProp.call(child, index)) continue;
-                  entry = child[index];
-                  if (typeof entry === 'string') {
-                    if (_this.options.cdata && requiresCDATA(entry)) {
-                      element = element.ele(key).raw(wrapCDATA(entry)).up();
-                    } else {
-                      element = element.ele(key, entry).up();
-                    }
-                  } else {
-                    element = render(element.ele(key), entry).up();
-                  }
-                }
-              } else if (typeof child === "object") {
-                element = render(element.ele(key), child).up();
-              } else {
-                if (typeof child === 'string' && _this.options.cdata && requiresCDATA(child)) {
-                  element = element.ele(key).raw(wrapCDATA(child)).up();
-                } else {
-                  if (child == null) {
-                    child = '';
-                  }
-                  element = element.ele(key, child.toString()).up();
-                }
-              }
-            }
-          }
-          return element;
-        };
-      })(this);
-      rootElement = builder.create(rootName, this.options.xmldec, this.options.doctype, {
-        headless: this.options.headless,
-        allowSurrogateChars: this.options.allowSurrogateChars
-      });
-      return render(rootElement, rootObj).end(this.options.renderOpts);
-    };
-
-    return Builder;
-
-  })();
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 264:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var XMLDOMConfiguration, XMLDOMErrorHandler, XMLDOMStringList;
-
-  XMLDOMErrorHandler = __webpack_require__(113);
-
-  XMLDOMStringList = __webpack_require__(51);
-
-  module.exports = XMLDOMConfiguration = (function() {
-    function XMLDOMConfiguration() {
-      var clonedSelf;
-      this.defaultParams = {
-        "canonical-form": false,
-        "cdata-sections": false,
-        "comments": false,
-        "datatype-normalization": false,
-        "element-content-whitespace": true,
-        "entities": true,
-        "error-handler": new XMLDOMErrorHandler(),
-        "infoset": true,
-        "validate-if-schema": false,
-        "namespaces": true,
-        "namespace-declarations": true,
-        "normalize-characters": false,
-        "schema-location": '',
-        "schema-type": '',
-        "split-cdata-sections": true,
-        "validate": false,
-        "well-formed": true
-      };
-      this.params = clonedSelf = Object.create(this.defaultParams);
-    }
-
-    Object.defineProperty(XMLDOMConfiguration.prototype, 'parameterNames', {
+    Object.defineProperty(XMLText.prototype, 'isElementContentWhitespace', {
       get: function() {
-        return new XMLDOMStringList(Object.keys(this.defaultParams));
+        throw new Error("This DOM method is not implemented." + this.debugInfo());
       }
     });
 
-    XMLDOMConfiguration.prototype.getParameter = function(name) {
-      if (this.params.hasOwnProperty(name)) {
-        return this.params[name];
-      } else {
-        return null;
+    Object.defineProperty(XMLText.prototype, 'wholeText', {
+      get: function() {
+        var next, prev, str;
+        str = '';
+        prev = this.previousSibling;
+        while (prev) {
+          str = prev.data + str;
+          prev = prev.previousSibling;
+        }
+        str += this.data;
+        next = this.nextSibling;
+        while (next) {
+          str = str + next.data;
+          next = next.nextSibling;
+        }
+        return str;
       }
+    });
+
+    XMLText.prototype.clone = function() {
+      return Object.create(this);
     };
 
-    XMLDOMConfiguration.prototype.canSetParameter = function(name, value) {
-      return true;
+    XMLText.prototype.toString = function(options) {
+      return this.options.writer.text(this, this.options.writer.filterOptions(options));
     };
 
-    XMLDOMConfiguration.prototype.setParameter = function(name, value) {
-      if (value != null) {
-        return this.params[name] = value;
-      } else {
-        return delete this.params[name];
-      }
+    XMLText.prototype.splitText = function(offset) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
     };
 
-    return XMLDOMConfiguration;
+    XMLText.prototype.replaceWholeText = function(content) {
+      throw new Error("This DOM method is not implemented." + this.debugInfo());
+    };
 
-  })();
+    return XMLText;
+
+  })(XMLCharacterData);
 
 }).call(this);
 
 
 /***/ }),
 
-/***/ 295:
+/***/ 802:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
-  var NodeType, XMLDTDNotation, XMLNode,
+  var NodeType, XMLDTDEntity, XMLNode, isObject,
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  XMLNode = __webpack_require__(828);
+  isObject = __webpack_require__(779).isObject;
 
-  NodeType = __webpack_require__(700);
+  XMLNode = __webpack_require__(698);
 
-  module.exports = XMLDTDNotation = (function(superClass) {
-    extend(XMLDTDNotation, superClass);
+  NodeType = __webpack_require__(65);
 
-    function XMLDTDNotation(parent, name, value) {
-      XMLDTDNotation.__super__.constructor.call(this, parent);
+  module.exports = XMLDTDEntity = (function(superClass) {
+    extend(XMLDTDEntity, superClass);
+
+    function XMLDTDEntity(parent, pe, name, value) {
+      XMLDTDEntity.__super__.constructor.call(this, parent);
       if (name == null) {
-        throw new Error("Missing DTD notation name. " + this.debugInfo(name));
+        throw new Error("Missing DTD entity name. " + this.debugInfo(name));
       }
-      if (!value.pubID && !value.sysID) {
-        throw new Error("Public or system identifiers are required for an external entity. " + this.debugInfo(name));
+      if (value == null) {
+        throw new Error("Missing DTD entity value. " + this.debugInfo(name));
       }
+      this.pe = !!pe;
       this.name = this.stringify.name(name);
-      this.type = NodeType.NotationDeclaration;
-      if (value.pubID != null) {
-        this.pubID = this.stringify.dtdPubID(value.pubID);
-      }
-      if (value.sysID != null) {
-        this.sysID = this.stringify.dtdSysID(value.sysID);
+      this.type = NodeType.EntityDeclaration;
+      if (!isObject(value)) {
+        this.value = this.stringify.dtdEntityValue(value);
+        this.internal = true;
+      } else {
+        if (!value.pubID && !value.sysID) {
+          throw new Error("Public and/or system identifiers are required for an external entity. " + this.debugInfo(name));
+        }
+        if (value.pubID && !value.sysID) {
+          throw new Error("System identifier is required for a public external entity. " + this.debugInfo(name));
+        }
+        this.internal = false;
+        if (value.pubID != null) {
+          this.pubID = this.stringify.dtdPubID(value.pubID);
+        }
+        if (value.sysID != null) {
+          this.sysID = this.stringify.dtdSysID(value.sysID);
+        }
+        if (value.nData != null) {
+          this.nData = this.stringify.dtdNData(value.nData);
+        }
+        if (this.pe && this.nData) {
+          throw new Error("Notation declaration is not allowed in a parameter entity. " + this.debugInfo(name));
+        }
       }
     }
 
-    Object.defineProperty(XMLDTDNotation.prototype, 'publicId', {
+    Object.defineProperty(XMLDTDEntity.prototype, 'publicId', {
       get: function() {
         return this.pubID;
       }
     });
 
-    Object.defineProperty(XMLDTDNotation.prototype, 'systemId', {
+    Object.defineProperty(XMLDTDEntity.prototype, 'systemId', {
       get: function() {
         return this.sysID;
       }
     });
 
-    XMLDTDNotation.prototype.toString = function(options) {
-      return this.options.writer.dtdNotation(this, this.options.writer.filterOptions(options));
+    Object.defineProperty(XMLDTDEntity.prototype, 'notationName', {
+      get: function() {
+        return this.nData || null;
+      }
+    });
+
+    Object.defineProperty(XMLDTDEntity.prototype, 'inputEncoding', {
+      get: function() {
+        return null;
+      }
+    });
+
+    Object.defineProperty(XMLDTDEntity.prototype, 'xmlEncoding', {
+      get: function() {
+        return null;
+      }
+    });
+
+    Object.defineProperty(XMLDTDEntity.prototype, 'xmlVersion', {
+      get: function() {
+        return null;
+      }
+    });
+
+    XMLDTDEntity.prototype.toString = function(options) {
+      return this.options.writer.dtdEntity(this, this.options.writer.filterOptions(options));
     };
 
-    return XMLDTDNotation;
+    return XMLDTDEntity;
 
   })(XMLNode);
 
@@ -5667,2653 +11902,7 @@ module.exports = require("timers");
 
 /***/ }),
 
-/***/ 297:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-// Older verions of Node.js might not have `util.getSystemErrorName()`.
-// In that case, fall back to a deprecated internal.
-const util = __webpack_require__(669);
-
-let uv;
-
-if (typeof util.getSystemErrorName === 'function') {
-	module.exports = util.getSystemErrorName;
-} else {
-	try {
-		uv = process.binding('uv');
-
-		if (typeof uv.errname !== 'function') {
-			throw new TypeError('uv.errname is not a function');
-		}
-	} catch (err) {
-		console.error('execa/lib/errname: unable to establish process.binding(\'uv\')', err);
-		uv = null;
-	}
-
-	module.exports = code => errname(uv, code);
-}
-
-// Used for testing the fallback behavior
-module.exports.__test__ = errname;
-
-function errname(uv, code) {
-	if (uv) {
-		return uv.errname(code);
-	}
-
-	if (!(code < 0)) {
-		throw new Error('err >= 0');
-	}
-
-	return `Unknown system error ${code}`;
-}
-
-
-
-/***/ }),
-
-/***/ 299:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-module.exports = __webpack_require__(686);
-
-
-/***/ }),
-
-/***/ 304:
-/***/ (function(module) {
-
-module.exports = require("string_decoder");
-
-/***/ }),
-
-/***/ 313:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  "use strict";
-  var builder, defaults, parser, processors,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  defaults = __webpack_require__(705);
-
-  builder = __webpack_require__(256);
-
-  parser = __webpack_require__(447);
-
-  processors = __webpack_require__(167);
-
-  exports.defaults = defaults.defaults;
-
-  exports.processors = processors;
-
-  exports.ValidationError = (function(superClass) {
-    extend(ValidationError, superClass);
-
-    function ValidationError(message) {
-      this.message = message;
-    }
-
-    return ValidationError;
-
-  })(Error);
-
-  exports.Builder = builder.Builder;
-
-  exports.Parser = parser.Parser;
-
-  exports.parseString = parser.parseString;
-
-  exports.parseStringPromise = parser.parseStringPromise;
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 319:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, XMLDummy, XMLNode,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  XMLNode = __webpack_require__(828);
-
-  NodeType = __webpack_require__(700);
-
-  module.exports = XMLDummy = (function(superClass) {
-    extend(XMLDummy, superClass);
-
-    function XMLDummy(parent) {
-      XMLDummy.__super__.constructor.call(this, parent);
-      this.type = NodeType.Dummy;
-    }
-
-    XMLDummy.prototype.clone = function() {
-      return Object.create(this);
-    };
-
-    XMLDummy.prototype.toString = function(options) {
-      return '';
-    };
-
-    return XMLDummy;
-
-  })(XMLNode);
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 323:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-
-const path = __webpack_require__(622);
-const which = __webpack_require__(563);
-const pathKey = __webpack_require__(496)();
-
-function resolveCommandAttempt(parsed, withoutPathExt) {
-    const cwd = process.cwd();
-    const hasCustomCwd = parsed.options.cwd != null;
-
-    // If a custom `cwd` was specified, we need to change the process cwd
-    // because `which` will do stat calls but does not support a custom cwd
-    if (hasCustomCwd) {
-        try {
-            process.chdir(parsed.options.cwd);
-        } catch (err) {
-            /* Empty */
-        }
-    }
-
-    let resolved;
-
-    try {
-        resolved = which.sync(parsed.command, {
-            path: (parsed.options.env || process.env)[pathKey],
-            pathExt: withoutPathExt ? path.delimiter : undefined,
-        });
-    } catch (e) {
-        /* Empty */
-    } finally {
-        process.chdir(cwd);
-    }
-
-    // If we successfully resolved, ensure that an absolute path is returned
-    // Note that when a custom `cwd` was used, we need to resolve to an absolute path based on it
-    if (resolved) {
-        resolved = path.resolve(hasCustomCwd ? parsed.options.cwd : '', resolved);
-    }
-
-    return resolved;
-}
-
-function resolveCommand(parsed) {
-    return resolveCommandAttempt(parsed) || resolveCommandAttempt(parsed, true);
-}
-
-module.exports = resolveCommand;
-
-
-/***/ }),
-
-/***/ 329:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, XMLAttribute, XMLNode;
-
-  NodeType = __webpack_require__(700);
-
-  XMLNode = __webpack_require__(828);
-
-  module.exports = XMLAttribute = (function() {
-    function XMLAttribute(parent, name, value) {
-      this.parent = parent;
-      if (this.parent) {
-        this.options = this.parent.options;
-        this.stringify = this.parent.stringify;
-      }
-      if (name == null) {
-        throw new Error("Missing attribute name. " + this.debugInfo(name));
-      }
-      this.name = this.stringify.name(name);
-      this.value = this.stringify.attValue(value);
-      this.type = NodeType.Attribute;
-      this.isId = false;
-      this.schemaTypeInfo = null;
-    }
-
-    Object.defineProperty(XMLAttribute.prototype, 'nodeType', {
-      get: function() {
-        return this.type;
-      }
-    });
-
-    Object.defineProperty(XMLAttribute.prototype, 'ownerElement', {
-      get: function() {
-        return this.parent;
-      }
-    });
-
-    Object.defineProperty(XMLAttribute.prototype, 'textContent', {
-      get: function() {
-        return this.value;
-      },
-      set: function(value) {
-        return this.value = value || '';
-      }
-    });
-
-    Object.defineProperty(XMLAttribute.prototype, 'namespaceURI', {
-      get: function() {
-        return '';
-      }
-    });
-
-    Object.defineProperty(XMLAttribute.prototype, 'prefix', {
-      get: function() {
-        return '';
-      }
-    });
-
-    Object.defineProperty(XMLAttribute.prototype, 'localName', {
-      get: function() {
-        return this.name;
-      }
-    });
-
-    Object.defineProperty(XMLAttribute.prototype, 'specified', {
-      get: function() {
-        return true;
-      }
-    });
-
-    XMLAttribute.prototype.clone = function() {
-      return Object.create(this);
-    };
-
-    XMLAttribute.prototype.toString = function(options) {
-      return this.options.writer.attribute(this, this.options.writer.filterOptions(options));
-    };
-
-    XMLAttribute.prototype.debugInfo = function(name) {
-      name = name || this.name;
-      if (name == null) {
-        return "parent: <" + this.parent.name + ">";
-      } else {
-        return "attribute: {" + name + "}, parent: <" + this.parent.name + ">";
-      }
-    };
-
-    XMLAttribute.prototype.isEqualNode = function(node) {
-      if (node.namespaceURI !== this.namespaceURI) {
-        return false;
-      }
-      if (node.prefix !== this.prefix) {
-        return false;
-      }
-      if (node.localName !== this.localName) {
-        return false;
-      }
-      if (node.value !== this.value) {
-        return false;
-      }
-      return true;
-    };
-
-    return XMLAttribute;
-
-  })();
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 339:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, '__esModule', { value: true });
-
-function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
-
-var endpoint = __webpack_require__(594);
-var universalUserAgent = __webpack_require__(922);
-var isPlainObject = _interopDefault(__webpack_require__(825));
-var nodeFetch = _interopDefault(__webpack_require__(170));
-var requestError = __webpack_require__(160);
-
-const VERSION = "5.4.5";
-
-function getBufferResponse(response) {
-  return response.arrayBuffer();
-}
-
-function fetchWrapper(requestOptions) {
-  if (isPlainObject(requestOptions.body) || Array.isArray(requestOptions.body)) {
-    requestOptions.body = JSON.stringify(requestOptions.body);
-  }
-
-  let headers = {};
-  let status;
-  let url;
-  const fetch = requestOptions.request && requestOptions.request.fetch || nodeFetch;
-  return fetch(requestOptions.url, Object.assign({
-    method: requestOptions.method,
-    body: requestOptions.body,
-    headers: requestOptions.headers,
-    redirect: requestOptions.redirect
-  }, requestOptions.request)).then(response => {
-    url = response.url;
-    status = response.status;
-
-    for (const keyAndValue of response.headers) {
-      headers[keyAndValue[0]] = keyAndValue[1];
-    }
-
-    if (status === 204 || status === 205) {
-      return;
-    } // GitHub API returns 200 for HEAD requests
-
-
-    if (requestOptions.method === "HEAD") {
-      if (status < 400) {
-        return;
-      }
-
-      throw new requestError.RequestError(response.statusText, status, {
-        headers,
-        request: requestOptions
-      });
-    }
-
-    if (status === 304) {
-      throw new requestError.RequestError("Not modified", status, {
-        headers,
-        request: requestOptions
-      });
-    }
-
-    if (status >= 400) {
-      return response.text().then(message => {
-        const error = new requestError.RequestError(message, status, {
-          headers,
-          request: requestOptions
-        });
-
-        try {
-          let responseBody = JSON.parse(error.message);
-          Object.assign(error, responseBody);
-          let errors = responseBody.errors; // Assumption `errors` would always be in Array format
-
-          error.message = error.message + ": " + errors.map(JSON.stringify).join(", ");
-        } catch (e) {// ignore, see octokit/rest.js#684
-        }
-
-        throw error;
-      });
-    }
-
-    const contentType = response.headers.get("content-type");
-
-    if (/application\/json/.test(contentType)) {
-      return response.json();
-    }
-
-    if (!contentType || /^text\/|charset=utf-8$/.test(contentType)) {
-      return response.text();
-    }
-
-    return getBufferResponse(response);
-  }).then(data => {
-    return {
-      status,
-      url,
-      headers,
-      data
-    };
-  }).catch(error => {
-    if (error instanceof requestError.RequestError) {
-      throw error;
-    }
-
-    throw new requestError.RequestError(error.message, 500, {
-      headers,
-      request: requestOptions
-    });
-  });
-}
-
-function withDefaults(oldEndpoint, newDefaults) {
-  const endpoint = oldEndpoint.defaults(newDefaults);
-
-  const newApi = function (route, parameters) {
-    const endpointOptions = endpoint.merge(route, parameters);
-
-    if (!endpointOptions.request || !endpointOptions.request.hook) {
-      return fetchWrapper(endpoint.parse(endpointOptions));
-    }
-
-    const request = (route, parameters) => {
-      return fetchWrapper(endpoint.parse(endpoint.merge(route, parameters)));
-    };
-
-    Object.assign(request, {
-      endpoint,
-      defaults: withDefaults.bind(null, endpoint)
-    });
-    return endpointOptions.request.hook(request, endpointOptions);
-  };
-
-  return Object.assign(newApi, {
-    endpoint,
-    defaults: withDefaults.bind(null, endpoint)
-  });
-}
-
-const request = withDefaults(endpoint.endpoint, {
-  headers: {
-    "user-agent": `octokit-request.js/${VERSION} ${universalUserAgent.getUserAgent()}`
-  }
-});
-
-exports.request = request;
-//# sourceMappingURL=index.js.map
-
-
-/***/ }),
-
-/***/ 343:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, WriterState, XMLAttribute, XMLCData, XMLComment, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDeclaration, XMLDocType, XMLDocument, XMLDocumentCB, XMLElement, XMLProcessingInstruction, XMLRaw, XMLStringWriter, XMLStringifier, XMLText, getValue, isFunction, isObject, isPlainObject, ref,
-    hasProp = {}.hasOwnProperty;
-
-  ref = __webpack_require__(774), isObject = ref.isObject, isFunction = ref.isFunction, isPlainObject = ref.isPlainObject, getValue = ref.getValue;
-
-  NodeType = __webpack_require__(700);
-
-  XMLDocument = __webpack_require__(137);
-
-  XMLElement = __webpack_require__(121);
-
-  XMLCData = __webpack_require__(151);
-
-  XMLComment = __webpack_require__(250);
-
-  XMLRaw = __webpack_require__(78);
-
-  XMLText = __webpack_require__(997);
-
-  XMLProcessingInstruction = __webpack_require__(193);
-
-  XMLDeclaration = __webpack_require__(604);
-
-  XMLDocType = __webpack_require__(102);
-
-  XMLDTDAttList = __webpack_require__(60);
-
-  XMLDTDEntity = __webpack_require__(777);
-
-  XMLDTDElement = __webpack_require__(188);
-
-  XMLDTDNotation = __webpack_require__(295);
-
-  XMLAttribute = __webpack_require__(329);
-
-  XMLStringifier = __webpack_require__(133);
-
-  XMLStringWriter = __webpack_require__(982);
-
-  WriterState = __webpack_require__(46);
-
-  module.exports = XMLDocumentCB = (function() {
-    function XMLDocumentCB(options, onData, onEnd) {
-      var writerOptions;
-      this.name = "?xml";
-      this.type = NodeType.Document;
-      options || (options = {});
-      writerOptions = {};
-      if (!options.writer) {
-        options.writer = new XMLStringWriter();
-      } else if (isPlainObject(options.writer)) {
-        writerOptions = options.writer;
-        options.writer = new XMLStringWriter();
-      }
-      this.options = options;
-      this.writer = options.writer;
-      this.writerOptions = this.writer.filterOptions(writerOptions);
-      this.stringify = new XMLStringifier(options);
-      this.onDataCallback = onData || function() {};
-      this.onEndCallback = onEnd || function() {};
-      this.currentNode = null;
-      this.currentLevel = -1;
-      this.openTags = {};
-      this.documentStarted = false;
-      this.documentCompleted = false;
-      this.root = null;
-    }
-
-    XMLDocumentCB.prototype.createChildNode = function(node) {
-      var att, attName, attributes, child, i, len, ref1, ref2;
-      switch (node.type) {
-        case NodeType.CData:
-          this.cdata(node.value);
-          break;
-        case NodeType.Comment:
-          this.comment(node.value);
-          break;
-        case NodeType.Element:
-          attributes = {};
-          ref1 = node.attribs;
-          for (attName in ref1) {
-            if (!hasProp.call(ref1, attName)) continue;
-            att = ref1[attName];
-            attributes[attName] = att.value;
-          }
-          this.node(node.name, attributes);
-          break;
-        case NodeType.Dummy:
-          this.dummy();
-          break;
-        case NodeType.Raw:
-          this.raw(node.value);
-          break;
-        case NodeType.Text:
-          this.text(node.value);
-          break;
-        case NodeType.ProcessingInstruction:
-          this.instruction(node.target, node.value);
-          break;
-        default:
-          throw new Error("This XML node type is not supported in a JS object: " + node.constructor.name);
-      }
-      ref2 = node.children;
-      for (i = 0, len = ref2.length; i < len; i++) {
-        child = ref2[i];
-        this.createChildNode(child);
-        if (child.type === NodeType.Element) {
-          this.up();
-        }
-      }
-      return this;
-    };
-
-    XMLDocumentCB.prototype.dummy = function() {
-      return this;
-    };
-
-    XMLDocumentCB.prototype.node = function(name, attributes, text) {
-      var ref1;
-      if (name == null) {
-        throw new Error("Missing node name.");
-      }
-      if (this.root && this.currentLevel === -1) {
-        throw new Error("Document can only have one root node. " + this.debugInfo(name));
-      }
-      this.openCurrent();
-      name = getValue(name);
-      if (attributes == null) {
-        attributes = {};
-      }
-      attributes = getValue(attributes);
-      if (!isObject(attributes)) {
-        ref1 = [attributes, text], text = ref1[0], attributes = ref1[1];
-      }
-      this.currentNode = new XMLElement(this, name, attributes);
-      this.currentNode.children = false;
-      this.currentLevel++;
-      this.openTags[this.currentLevel] = this.currentNode;
-      if (text != null) {
-        this.text(text);
-      }
-      return this;
-    };
-
-    XMLDocumentCB.prototype.element = function(name, attributes, text) {
-      var child, i, len, oldValidationFlag, ref1, root;
-      if (this.currentNode && this.currentNode.type === NodeType.DocType) {
-        this.dtdElement.apply(this, arguments);
-      } else {
-        if (Array.isArray(name) || isObject(name) || isFunction(name)) {
-          oldValidationFlag = this.options.noValidation;
-          this.options.noValidation = true;
-          root = new XMLDocument(this.options).element('TEMP_ROOT');
-          root.element(name);
-          this.options.noValidation = oldValidationFlag;
-          ref1 = root.children;
-          for (i = 0, len = ref1.length; i < len; i++) {
-            child = ref1[i];
-            this.createChildNode(child);
-            if (child.type === NodeType.Element) {
-              this.up();
-            }
-          }
-        } else {
-          this.node(name, attributes, text);
-        }
-      }
-      return this;
-    };
-
-    XMLDocumentCB.prototype.attribute = function(name, value) {
-      var attName, attValue;
-      if (!this.currentNode || this.currentNode.children) {
-        throw new Error("att() can only be used immediately after an ele() call in callback mode. " + this.debugInfo(name));
-      }
-      if (name != null) {
-        name = getValue(name);
-      }
-      if (isObject(name)) {
-        for (attName in name) {
-          if (!hasProp.call(name, attName)) continue;
-          attValue = name[attName];
-          this.attribute(attName, attValue);
-        }
-      } else {
-        if (isFunction(value)) {
-          value = value.apply();
-        }
-        if (this.options.keepNullAttributes && (value == null)) {
-          this.currentNode.attribs[name] = new XMLAttribute(this, name, "");
-        } else if (value != null) {
-          this.currentNode.attribs[name] = new XMLAttribute(this, name, value);
-        }
-      }
-      return this;
-    };
-
-    XMLDocumentCB.prototype.text = function(value) {
-      var node;
-      this.openCurrent();
-      node = new XMLText(this, value);
-      this.onData(this.writer.text(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.cdata = function(value) {
-      var node;
-      this.openCurrent();
-      node = new XMLCData(this, value);
-      this.onData(this.writer.cdata(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.comment = function(value) {
-      var node;
-      this.openCurrent();
-      node = new XMLComment(this, value);
-      this.onData(this.writer.comment(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.raw = function(value) {
-      var node;
-      this.openCurrent();
-      node = new XMLRaw(this, value);
-      this.onData(this.writer.raw(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.instruction = function(target, value) {
-      var i, insTarget, insValue, len, node;
-      this.openCurrent();
-      if (target != null) {
-        target = getValue(target);
-      }
-      if (value != null) {
-        value = getValue(value);
-      }
-      if (Array.isArray(target)) {
-        for (i = 0, len = target.length; i < len; i++) {
-          insTarget = target[i];
-          this.instruction(insTarget);
-        }
-      } else if (isObject(target)) {
-        for (insTarget in target) {
-          if (!hasProp.call(target, insTarget)) continue;
-          insValue = target[insTarget];
-          this.instruction(insTarget, insValue);
-        }
-      } else {
-        if (isFunction(value)) {
-          value = value.apply();
-        }
-        node = new XMLProcessingInstruction(this, target, value);
-        this.onData(this.writer.processingInstruction(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      }
-      return this;
-    };
-
-    XMLDocumentCB.prototype.declaration = function(version, encoding, standalone) {
-      var node;
-      this.openCurrent();
-      if (this.documentStarted) {
-        throw new Error("declaration() must be the first node.");
-      }
-      node = new XMLDeclaration(this, version, encoding, standalone);
-      this.onData(this.writer.declaration(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.doctype = function(root, pubID, sysID) {
-      this.openCurrent();
-      if (root == null) {
-        throw new Error("Missing root node name.");
-      }
-      if (this.root) {
-        throw new Error("dtd() must come before the root node.");
-      }
-      this.currentNode = new XMLDocType(this, pubID, sysID);
-      this.currentNode.rootNodeName = root;
-      this.currentNode.children = false;
-      this.currentLevel++;
-      this.openTags[this.currentLevel] = this.currentNode;
-      return this;
-    };
-
-    XMLDocumentCB.prototype.dtdElement = function(name, value) {
-      var node;
-      this.openCurrent();
-      node = new XMLDTDElement(this, name, value);
-      this.onData(this.writer.dtdElement(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.attList = function(elementName, attributeName, attributeType, defaultValueType, defaultValue) {
-      var node;
-      this.openCurrent();
-      node = new XMLDTDAttList(this, elementName, attributeName, attributeType, defaultValueType, defaultValue);
-      this.onData(this.writer.dtdAttList(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.entity = function(name, value) {
-      var node;
-      this.openCurrent();
-      node = new XMLDTDEntity(this, false, name, value);
-      this.onData(this.writer.dtdEntity(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.pEntity = function(name, value) {
-      var node;
-      this.openCurrent();
-      node = new XMLDTDEntity(this, true, name, value);
-      this.onData(this.writer.dtdEntity(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.notation = function(name, value) {
-      var node;
-      this.openCurrent();
-      node = new XMLDTDNotation(this, name, value);
-      this.onData(this.writer.dtdNotation(node, this.writerOptions, this.currentLevel + 1), this.currentLevel + 1);
-      return this;
-    };
-
-    XMLDocumentCB.prototype.up = function() {
-      if (this.currentLevel < 0) {
-        throw new Error("The document node has no parent.");
-      }
-      if (this.currentNode) {
-        if (this.currentNode.children) {
-          this.closeNode(this.currentNode);
-        } else {
-          this.openNode(this.currentNode);
-        }
-        this.currentNode = null;
-      } else {
-        this.closeNode(this.openTags[this.currentLevel]);
-      }
-      delete this.openTags[this.currentLevel];
-      this.currentLevel--;
-      return this;
-    };
-
-    XMLDocumentCB.prototype.end = function() {
-      while (this.currentLevel >= 0) {
-        this.up();
-      }
-      return this.onEnd();
-    };
-
-    XMLDocumentCB.prototype.openCurrent = function() {
-      if (this.currentNode) {
-        this.currentNode.children = true;
-        return this.openNode(this.currentNode);
-      }
-    };
-
-    XMLDocumentCB.prototype.openNode = function(node) {
-      var att, chunk, name, ref1;
-      if (!node.isOpen) {
-        if (!this.root && this.currentLevel === 0 && node.type === NodeType.Element) {
-          this.root = node;
-        }
-        chunk = '';
-        if (node.type === NodeType.Element) {
-          this.writerOptions.state = WriterState.OpenTag;
-          chunk = this.writer.indent(node, this.writerOptions, this.currentLevel) + '<' + node.name;
-          ref1 = node.attribs;
-          for (name in ref1) {
-            if (!hasProp.call(ref1, name)) continue;
-            att = ref1[name];
-            chunk += this.writer.attribute(att, this.writerOptions, this.currentLevel);
-          }
-          chunk += (node.children ? '>' : '/>') + this.writer.endline(node, this.writerOptions, this.currentLevel);
-          this.writerOptions.state = WriterState.InsideTag;
-        } else {
-          this.writerOptions.state = WriterState.OpenTag;
-          chunk = this.writer.indent(node, this.writerOptions, this.currentLevel) + '<!DOCTYPE ' + node.rootNodeName;
-          if (node.pubID && node.sysID) {
-            chunk += ' PUBLIC "' + node.pubID + '" "' + node.sysID + '"';
-          } else if (node.sysID) {
-            chunk += ' SYSTEM "' + node.sysID + '"';
-          }
-          if (node.children) {
-            chunk += ' [';
-            this.writerOptions.state = WriterState.InsideTag;
-          } else {
-            this.writerOptions.state = WriterState.CloseTag;
-            chunk += '>';
-          }
-          chunk += this.writer.endline(node, this.writerOptions, this.currentLevel);
-        }
-        this.onData(chunk, this.currentLevel);
-        return node.isOpen = true;
-      }
-    };
-
-    XMLDocumentCB.prototype.closeNode = function(node) {
-      var chunk;
-      if (!node.isClosed) {
-        chunk = '';
-        this.writerOptions.state = WriterState.CloseTag;
-        if (node.type === NodeType.Element) {
-          chunk = this.writer.indent(node, this.writerOptions, this.currentLevel) + '</' + node.name + '>' + this.writer.endline(node, this.writerOptions, this.currentLevel);
-        } else {
-          chunk = this.writer.indent(node, this.writerOptions, this.currentLevel) + ']>' + this.writer.endline(node, this.writerOptions, this.currentLevel);
-        }
-        this.writerOptions.state = WriterState.None;
-        this.onData(chunk, this.currentLevel);
-        return node.isClosed = true;
-      }
-    };
-
-    XMLDocumentCB.prototype.onData = function(chunk, level) {
-      this.documentStarted = true;
-      return this.onDataCallback(chunk, level + 1);
-    };
-
-    XMLDocumentCB.prototype.onEnd = function() {
-      this.documentCompleted = true;
-      return this.onEndCallback();
-    };
-
-    XMLDocumentCB.prototype.debugInfo = function(name) {
-      if (name == null) {
-        return "";
-      } else {
-        return "node: <" + name + ">";
-      }
-    };
-
-    XMLDocumentCB.prototype.ele = function() {
-      return this.element.apply(this, arguments);
-    };
-
-    XMLDocumentCB.prototype.nod = function(name, attributes, text) {
-      return this.node(name, attributes, text);
-    };
-
-    XMLDocumentCB.prototype.txt = function(value) {
-      return this.text(value);
-    };
-
-    XMLDocumentCB.prototype.dat = function(value) {
-      return this.cdata(value);
-    };
-
-    XMLDocumentCB.prototype.com = function(value) {
-      return this.comment(value);
-    };
-
-    XMLDocumentCB.prototype.ins = function(target, value) {
-      return this.instruction(target, value);
-    };
-
-    XMLDocumentCB.prototype.dec = function(version, encoding, standalone) {
-      return this.declaration(version, encoding, standalone);
-    };
-
-    XMLDocumentCB.prototype.dtd = function(root, pubID, sysID) {
-      return this.doctype(root, pubID, sysID);
-    };
-
-    XMLDocumentCB.prototype.e = function(name, attributes, text) {
-      return this.element(name, attributes, text);
-    };
-
-    XMLDocumentCB.prototype.n = function(name, attributes, text) {
-      return this.node(name, attributes, text);
-    };
-
-    XMLDocumentCB.prototype.t = function(value) {
-      return this.text(value);
-    };
-
-    XMLDocumentCB.prototype.d = function(value) {
-      return this.cdata(value);
-    };
-
-    XMLDocumentCB.prototype.c = function(value) {
-      return this.comment(value);
-    };
-
-    XMLDocumentCB.prototype.r = function(value) {
-      return this.raw(value);
-    };
-
-    XMLDocumentCB.prototype.i = function(target, value) {
-      return this.instruction(target, value);
-    };
-
-    XMLDocumentCB.prototype.att = function() {
-      if (this.currentNode && this.currentNode.type === NodeType.DocType) {
-        return this.attList.apply(this, arguments);
-      } else {
-        return this.attribute.apply(this, arguments);
-      }
-    };
-
-    XMLDocumentCB.prototype.a = function() {
-      if (this.currentNode && this.currentNode.type === NodeType.DocType) {
-        return this.attList.apply(this, arguments);
-      } else {
-        return this.attribute.apply(this, arguments);
-      }
-    };
-
-    XMLDocumentCB.prototype.ent = function(name, value) {
-      return this.entity(name, value);
-    };
-
-    XMLDocumentCB.prototype.pent = function(name, value) {
-      return this.pEntity(name, value);
-    };
-
-    XMLDocumentCB.prototype.not = function(name, value) {
-      return this.notation(name, value);
-    };
-
-    return XMLDocumentCB;
-
-  })();
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 357:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
-    result["default"] = mod;
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-const command_1 = __webpack_require__(92);
-const os = __importStar(__webpack_require__(87));
-const path = __importStar(__webpack_require__(622));
-/**
- * The code to exit an action
- */
-var ExitCode;
-(function (ExitCode) {
-    /**
-     * A code indicating that the action was successful
-     */
-    ExitCode[ExitCode["Success"] = 0] = "Success";
-    /**
-     * A code indicating that the action was a failure
-     */
-    ExitCode[ExitCode["Failure"] = 1] = "Failure";
-})(ExitCode = exports.ExitCode || (exports.ExitCode = {}));
-//-----------------------------------------------------------------------
-// Variables
-//-----------------------------------------------------------------------
-/**
- * Sets env variable for this action and future actions in the job
- * @param name the name of the variable to set
- * @param val the value of the variable. Non-string values will be converted to a string via JSON.stringify
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function exportVariable(name, val) {
-    const convertedVal = command_1.toCommandValue(val);
-    process.env[name] = convertedVal;
-    command_1.issueCommand('set-env', { name }, convertedVal);
-}
-exports.exportVariable = exportVariable;
-/**
- * Registers a secret which will get masked from logs
- * @param secret value of the secret
- */
-function setSecret(secret) {
-    command_1.issueCommand('add-mask', {}, secret);
-}
-exports.setSecret = setSecret;
-/**
- * Prepends inputPath to the PATH (for this action and future actions)
- * @param inputPath
- */
-function addPath(inputPath) {
-    command_1.issueCommand('add-path', {}, inputPath);
-    process.env['PATH'] = `${inputPath}${path.delimiter}${process.env['PATH']}`;
-}
-exports.addPath = addPath;
-/**
- * Gets the value of an input.  The value is also trimmed.
- *
- * @param     name     name of the input to get
- * @param     options  optional. See InputOptions.
- * @returns   string
- */
-function getInput(name, options) {
-    const val = process.env[`INPUT_${name.replace(/ /g, '_').toUpperCase()}`] || '';
-    if (options && options.required && !val) {
-        throw new Error(`Input required and not supplied: ${name}`);
-    }
-    return val.trim();
-}
-exports.getInput = getInput;
-/**
- * Sets the value of an output.
- *
- * @param     name     name of the output to set
- * @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function setOutput(name, value) {
-    command_1.issueCommand('set-output', { name }, value);
-}
-exports.setOutput = setOutput;
-/**
- * Enables or disables the echoing of commands into stdout for the rest of the step.
- * Echoing is disabled by default if ACTIONS_STEP_DEBUG is not set.
- *
- */
-function setCommandEcho(enabled) {
-    command_1.issue('echo', enabled ? 'on' : 'off');
-}
-exports.setCommandEcho = setCommandEcho;
-//-----------------------------------------------------------------------
-// Results
-//-----------------------------------------------------------------------
-/**
- * Sets the action status to failed.
- * When the action exits it will be with an exit code of 1
- * @param message add error issue message
- */
-function setFailed(message) {
-    process.exitCode = ExitCode.Failure;
-    error(message);
-}
-exports.setFailed = setFailed;
-//-----------------------------------------------------------------------
-// Logging Commands
-//-----------------------------------------------------------------------
-/**
- * Gets whether Actions Step Debug is on or not
- */
-function isDebug() {
-    return process.env['RUNNER_DEBUG'] === '1';
-}
-exports.isDebug = isDebug;
-/**
- * Writes debug message to user log
- * @param message debug message
- */
-function debug(message) {
-    command_1.issueCommand('debug', {}, message);
-}
-exports.debug = debug;
-/**
- * Adds an error issue
- * @param message error issue message. Errors will be converted to string via toString()
- */
-function error(message) {
-    command_1.issue('error', message instanceof Error ? message.toString() : message);
-}
-exports.error = error;
-/**
- * Adds an warning issue
- * @param message warning issue message. Errors will be converted to string via toString()
- */
-function warning(message) {
-    command_1.issue('warning', message instanceof Error ? message.toString() : message);
-}
-exports.warning = warning;
-/**
- * Writes info to log with console.log.
- * @param message info message
- */
-function info(message) {
-    process.stdout.write(message + os.EOL);
-}
-exports.info = info;
-/**
- * Begin an output group.
- *
- * Output until the next `groupEnd` will be foldable in this group
- *
- * @param name The name of the output group
- */
-function startGroup(name) {
-    command_1.issue('group', name);
-}
-exports.startGroup = startGroup;
-/**
- * End an output group.
- */
-function endGroup() {
-    command_1.issue('endgroup');
-}
-exports.endGroup = endGroup;
-/**
- * Wrap an asynchronous function call in a group.
- *
- * Returns the same type as the function itself.
- *
- * @param name The name of the group
- * @param fn The function to wrap in the group
- */
-function group(name, fn) {
-    return __awaiter(this, void 0, void 0, function* () {
-        startGroup(name);
-        let result;
-        try {
-            result = yield fn();
-        }
-        finally {
-            endGroup();
-        }
-        return result;
-    });
-}
-exports.group = group;
-//-----------------------------------------------------------------------
-// Wrapper action state
-//-----------------------------------------------------------------------
-/**
- * Saves state for current action, the state can only be retrieved by this action's post job execution.
- *
- * @param     name     name of the state to store
- * @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function saveState(name, value) {
-    command_1.issueCommand('save-state', { name }, value);
-}
-exports.saveState = saveState;
-/**
- * Gets the value of an state set by this action's main execution.
- *
- * @param     name     name of the state to get
- * @returns   string
- */
-function getState(name) {
-    return process.env[`STATE_${name}`] || '';
-}
-exports.getState = getState;
-//# sourceMappingURL=core.js.map
-
-/***/ }),
-
-/***/ 360:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-const url = __webpack_require__(835);
-function getProxyUrl(reqUrl) {
-    let usingSsl = reqUrl.protocol === 'https:';
-    let proxyUrl;
-    if (checkBypass(reqUrl)) {
-        return proxyUrl;
-    }
-    let proxyVar;
-    if (usingSsl) {
-        proxyVar = process.env['https_proxy'] || process.env['HTTPS_PROXY'];
-    }
-    else {
-        proxyVar = process.env['http_proxy'] || process.env['HTTP_PROXY'];
-    }
-    if (proxyVar) {
-        proxyUrl = url.parse(proxyVar);
-    }
-    return proxyUrl;
-}
-exports.getProxyUrl = getProxyUrl;
-function checkBypass(reqUrl) {
-    if (!reqUrl.hostname) {
-        return false;
-    }
-    let noProxy = process.env['no_proxy'] || process.env['NO_PROXY'] || '';
-    if (!noProxy) {
-        return false;
-    }
-    // Determine the request port
-    let reqPort;
-    if (reqUrl.port) {
-        reqPort = Number(reqUrl.port);
-    }
-    else if (reqUrl.protocol === 'http:') {
-        reqPort = 80;
-    }
-    else if (reqUrl.protocol === 'https:') {
-        reqPort = 443;
-    }
-    // Format the request hostname and hostname with port
-    let upperReqHosts = [reqUrl.hostname.toUpperCase()];
-    if (typeof reqPort === 'number') {
-        upperReqHosts.push(`${upperReqHosts[0]}:${reqPort}`);
-    }
-    // Compare request host against noproxy
-    for (let upperNoProxyItem of noProxy
-        .split(',')
-        .map(x => x.trim().toUpperCase())
-        .filter(x => x)) {
-        if (upperReqHosts.some(x => x === upperNoProxyItem)) {
-            return true;
-        }
-    }
-    return false;
-}
-exports.checkBypass = checkBypass;
-
-
-/***/ }),
-
-/***/ 361:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-module.exports = isexe
-isexe.sync = sync
-
-var fs = __webpack_require__(747)
-
-function checkPathExt (path, options) {
-  var pathext = options.pathExt !== undefined ?
-    options.pathExt : process.env.PATHEXT
-
-  if (!pathext) {
-    return true
-  }
-
-  pathext = pathext.split(';')
-  if (pathext.indexOf('') !== -1) {
-    return true
-  }
-  for (var i = 0; i < pathext.length; i++) {
-    var p = pathext[i].toLowerCase()
-    if (p && path.substr(-p.length).toLowerCase() === p) {
-      return true
-    }
-  }
-  return false
-}
-
-function checkStat (stat, path, options) {
-  if (!stat.isSymbolicLink() && !stat.isFile()) {
-    return false
-  }
-  return checkPathExt(path, options)
-}
-
-function isexe (path, options, cb) {
-  fs.stat(path, function (er, stat) {
-    cb(er, er ? false : checkStat(stat, path, options))
-  })
-}
-
-function sync (path, options) {
-  return checkStat(fs.statSync(path), path, options)
-}
-
-
-/***/ }),
-
-/***/ 368:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-const url = __webpack_require__(835);
-const http = __webpack_require__(605);
-const https = __webpack_require__(211);
-const pm = __webpack_require__(360);
-let tunnel;
-var HttpCodes;
-(function (HttpCodes) {
-    HttpCodes[HttpCodes["OK"] = 200] = "OK";
-    HttpCodes[HttpCodes["MultipleChoices"] = 300] = "MultipleChoices";
-    HttpCodes[HttpCodes["MovedPermanently"] = 301] = "MovedPermanently";
-    HttpCodes[HttpCodes["ResourceMoved"] = 302] = "ResourceMoved";
-    HttpCodes[HttpCodes["SeeOther"] = 303] = "SeeOther";
-    HttpCodes[HttpCodes["NotModified"] = 304] = "NotModified";
-    HttpCodes[HttpCodes["UseProxy"] = 305] = "UseProxy";
-    HttpCodes[HttpCodes["SwitchProxy"] = 306] = "SwitchProxy";
-    HttpCodes[HttpCodes["TemporaryRedirect"] = 307] = "TemporaryRedirect";
-    HttpCodes[HttpCodes["PermanentRedirect"] = 308] = "PermanentRedirect";
-    HttpCodes[HttpCodes["BadRequest"] = 400] = "BadRequest";
-    HttpCodes[HttpCodes["Unauthorized"] = 401] = "Unauthorized";
-    HttpCodes[HttpCodes["PaymentRequired"] = 402] = "PaymentRequired";
-    HttpCodes[HttpCodes["Forbidden"] = 403] = "Forbidden";
-    HttpCodes[HttpCodes["NotFound"] = 404] = "NotFound";
-    HttpCodes[HttpCodes["MethodNotAllowed"] = 405] = "MethodNotAllowed";
-    HttpCodes[HttpCodes["NotAcceptable"] = 406] = "NotAcceptable";
-    HttpCodes[HttpCodes["ProxyAuthenticationRequired"] = 407] = "ProxyAuthenticationRequired";
-    HttpCodes[HttpCodes["RequestTimeout"] = 408] = "RequestTimeout";
-    HttpCodes[HttpCodes["Conflict"] = 409] = "Conflict";
-    HttpCodes[HttpCodes["Gone"] = 410] = "Gone";
-    HttpCodes[HttpCodes["TooManyRequests"] = 429] = "TooManyRequests";
-    HttpCodes[HttpCodes["InternalServerError"] = 500] = "InternalServerError";
-    HttpCodes[HttpCodes["NotImplemented"] = 501] = "NotImplemented";
-    HttpCodes[HttpCodes["BadGateway"] = 502] = "BadGateway";
-    HttpCodes[HttpCodes["ServiceUnavailable"] = 503] = "ServiceUnavailable";
-    HttpCodes[HttpCodes["GatewayTimeout"] = 504] = "GatewayTimeout";
-})(HttpCodes = exports.HttpCodes || (exports.HttpCodes = {}));
-var Headers;
-(function (Headers) {
-    Headers["Accept"] = "accept";
-    Headers["ContentType"] = "content-type";
-})(Headers = exports.Headers || (exports.Headers = {}));
-var MediaTypes;
-(function (MediaTypes) {
-    MediaTypes["ApplicationJson"] = "application/json";
-})(MediaTypes = exports.MediaTypes || (exports.MediaTypes = {}));
-/**
- * Returns the proxy URL, depending upon the supplied url and proxy environment variables.
- * @param serverUrl  The server URL where the request will be sent. For example, https://api.github.com
- */
-function getProxyUrl(serverUrl) {
-    let proxyUrl = pm.getProxyUrl(url.parse(serverUrl));
-    return proxyUrl ? proxyUrl.href : '';
-}
-exports.getProxyUrl = getProxyUrl;
-const HttpRedirectCodes = [
-    HttpCodes.MovedPermanently,
-    HttpCodes.ResourceMoved,
-    HttpCodes.SeeOther,
-    HttpCodes.TemporaryRedirect,
-    HttpCodes.PermanentRedirect
-];
-const HttpResponseRetryCodes = [
-    HttpCodes.BadGateway,
-    HttpCodes.ServiceUnavailable,
-    HttpCodes.GatewayTimeout
-];
-const RetryableHttpVerbs = ['OPTIONS', 'GET', 'DELETE', 'HEAD'];
-const ExponentialBackoffCeiling = 10;
-const ExponentialBackoffTimeSlice = 5;
-class HttpClientResponse {
-    constructor(message) {
-        this.message = message;
-    }
-    readBody() {
-        return new Promise(async (resolve, reject) => {
-            let output = Buffer.alloc(0);
-            this.message.on('data', (chunk) => {
-                output = Buffer.concat([output, chunk]);
-            });
-            this.message.on('end', () => {
-                resolve(output.toString());
-            });
-        });
-    }
-}
-exports.HttpClientResponse = HttpClientResponse;
-function isHttps(requestUrl) {
-    let parsedUrl = url.parse(requestUrl);
-    return parsedUrl.protocol === 'https:';
-}
-exports.isHttps = isHttps;
-class HttpClient {
-    constructor(userAgent, handlers, requestOptions) {
-        this._ignoreSslError = false;
-        this._allowRedirects = true;
-        this._allowRedirectDowngrade = false;
-        this._maxRedirects = 50;
-        this._allowRetries = false;
-        this._maxRetries = 1;
-        this._keepAlive = false;
-        this._disposed = false;
-        this.userAgent = userAgent;
-        this.handlers = handlers || [];
-        this.requestOptions = requestOptions;
-        if (requestOptions) {
-            if (requestOptions.ignoreSslError != null) {
-                this._ignoreSslError = requestOptions.ignoreSslError;
-            }
-            this._socketTimeout = requestOptions.socketTimeout;
-            if (requestOptions.allowRedirects != null) {
-                this._allowRedirects = requestOptions.allowRedirects;
-            }
-            if (requestOptions.allowRedirectDowngrade != null) {
-                this._allowRedirectDowngrade = requestOptions.allowRedirectDowngrade;
-            }
-            if (requestOptions.maxRedirects != null) {
-                this._maxRedirects = Math.max(requestOptions.maxRedirects, 0);
-            }
-            if (requestOptions.keepAlive != null) {
-                this._keepAlive = requestOptions.keepAlive;
-            }
-            if (requestOptions.allowRetries != null) {
-                this._allowRetries = requestOptions.allowRetries;
-            }
-            if (requestOptions.maxRetries != null) {
-                this._maxRetries = requestOptions.maxRetries;
-            }
-        }
-    }
-    options(requestUrl, additionalHeaders) {
-        return this.request('OPTIONS', requestUrl, null, additionalHeaders || {});
-    }
-    get(requestUrl, additionalHeaders) {
-        return this.request('GET', requestUrl, null, additionalHeaders || {});
-    }
-    del(requestUrl, additionalHeaders) {
-        return this.request('DELETE', requestUrl, null, additionalHeaders || {});
-    }
-    post(requestUrl, data, additionalHeaders) {
-        return this.request('POST', requestUrl, data, additionalHeaders || {});
-    }
-    patch(requestUrl, data, additionalHeaders) {
-        return this.request('PATCH', requestUrl, data, additionalHeaders || {});
-    }
-    put(requestUrl, data, additionalHeaders) {
-        return this.request('PUT', requestUrl, data, additionalHeaders || {});
-    }
-    head(requestUrl, additionalHeaders) {
-        return this.request('HEAD', requestUrl, null, additionalHeaders || {});
-    }
-    sendStream(verb, requestUrl, stream, additionalHeaders) {
-        return this.request(verb, requestUrl, stream, additionalHeaders);
-    }
-    /**
-     * Gets a typed object from an endpoint
-     * Be aware that not found returns a null.  Other errors (4xx, 5xx) reject the promise
-     */
-    async getJson(requestUrl, additionalHeaders = {}) {
-        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
-        let res = await this.get(requestUrl, additionalHeaders);
-        return this._processResponse(res, this.requestOptions);
-    }
-    async postJson(requestUrl, obj, additionalHeaders = {}) {
-        let data = JSON.stringify(obj, null, 2);
-        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
-        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
-        let res = await this.post(requestUrl, data, additionalHeaders);
-        return this._processResponse(res, this.requestOptions);
-    }
-    async putJson(requestUrl, obj, additionalHeaders = {}) {
-        let data = JSON.stringify(obj, null, 2);
-        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
-        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
-        let res = await this.put(requestUrl, data, additionalHeaders);
-        return this._processResponse(res, this.requestOptions);
-    }
-    async patchJson(requestUrl, obj, additionalHeaders = {}) {
-        let data = JSON.stringify(obj, null, 2);
-        additionalHeaders[Headers.Accept] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.Accept, MediaTypes.ApplicationJson);
-        additionalHeaders[Headers.ContentType] = this._getExistingOrDefaultHeader(additionalHeaders, Headers.ContentType, MediaTypes.ApplicationJson);
-        let res = await this.patch(requestUrl, data, additionalHeaders);
-        return this._processResponse(res, this.requestOptions);
-    }
-    /**
-     * Makes a raw http request.
-     * All other methods such as get, post, patch, and request ultimately call this.
-     * Prefer get, del, post and patch
-     */
-    async request(verb, requestUrl, data, headers) {
-        if (this._disposed) {
-            throw new Error('Client has already been disposed.');
-        }
-        let parsedUrl = url.parse(requestUrl);
-        let info = this._prepareRequest(verb, parsedUrl, headers);
-        // Only perform retries on reads since writes may not be idempotent.
-        let maxTries = this._allowRetries && RetryableHttpVerbs.indexOf(verb) != -1
-            ? this._maxRetries + 1
-            : 1;
-        let numTries = 0;
-        let response;
-        while (numTries < maxTries) {
-            response = await this.requestRaw(info, data);
-            // Check if it's an authentication challenge
-            if (response &&
-                response.message &&
-                response.message.statusCode === HttpCodes.Unauthorized) {
-                let authenticationHandler;
-                for (let i = 0; i < this.handlers.length; i++) {
-                    if (this.handlers[i].canHandleAuthentication(response)) {
-                        authenticationHandler = this.handlers[i];
-                        break;
-                    }
-                }
-                if (authenticationHandler) {
-                    return authenticationHandler.handleAuthentication(this, info, data);
-                }
-                else {
-                    // We have received an unauthorized response but have no handlers to handle it.
-                    // Let the response return to the caller.
-                    return response;
-                }
-            }
-            let redirectsRemaining = this._maxRedirects;
-            while (HttpRedirectCodes.indexOf(response.message.statusCode) != -1 &&
-                this._allowRedirects &&
-                redirectsRemaining > 0) {
-                const redirectUrl = response.message.headers['location'];
-                if (!redirectUrl) {
-                    // if there's no location to redirect to, we won't
-                    break;
-                }
-                let parsedRedirectUrl = url.parse(redirectUrl);
-                if (parsedUrl.protocol == 'https:' &&
-                    parsedUrl.protocol != parsedRedirectUrl.protocol &&
-                    !this._allowRedirectDowngrade) {
-                    throw new Error('Redirect from HTTPS to HTTP protocol. This downgrade is not allowed for security reasons. If you want to allow this behavior, set the allowRedirectDowngrade option to true.');
-                }
-                // we need to finish reading the response before reassigning response
-                // which will leak the open socket.
-                await response.readBody();
-                // strip authorization header if redirected to a different hostname
-                if (parsedRedirectUrl.hostname !== parsedUrl.hostname) {
-                    for (let header in headers) {
-                        // header names are case insensitive
-                        if (header.toLowerCase() === 'authorization') {
-                            delete headers[header];
-                        }
-                    }
-                }
-                // let's make the request with the new redirectUrl
-                info = this._prepareRequest(verb, parsedRedirectUrl, headers);
-                response = await this.requestRaw(info, data);
-                redirectsRemaining--;
-            }
-            if (HttpResponseRetryCodes.indexOf(response.message.statusCode) == -1) {
-                // If not a retry code, return immediately instead of retrying
-                return response;
-            }
-            numTries += 1;
-            if (numTries < maxTries) {
-                await response.readBody();
-                await this._performExponentialBackoff(numTries);
-            }
-        }
-        return response;
-    }
-    /**
-     * Needs to be called if keepAlive is set to true in request options.
-     */
-    dispose() {
-        if (this._agent) {
-            this._agent.destroy();
-        }
-        this._disposed = true;
-    }
-    /**
-     * Raw request.
-     * @param info
-     * @param data
-     */
-    requestRaw(info, data) {
-        return new Promise((resolve, reject) => {
-            let callbackForResult = function (err, res) {
-                if (err) {
-                    reject(err);
-                }
-                resolve(res);
-            };
-            this.requestRawWithCallback(info, data, callbackForResult);
-        });
-    }
-    /**
-     * Raw request with callback.
-     * @param info
-     * @param data
-     * @param onResult
-     */
-    requestRawWithCallback(info, data, onResult) {
-        let socket;
-        if (typeof data === 'string') {
-            info.options.headers['Content-Length'] = Buffer.byteLength(data, 'utf8');
-        }
-        let callbackCalled = false;
-        let handleResult = (err, res) => {
-            if (!callbackCalled) {
-                callbackCalled = true;
-                onResult(err, res);
-            }
-        };
-        let req = info.httpModule.request(info.options, (msg) => {
-            let res = new HttpClientResponse(msg);
-            handleResult(null, res);
-        });
-        req.on('socket', sock => {
-            socket = sock;
-        });
-        // If we ever get disconnected, we want the socket to timeout eventually
-        req.setTimeout(this._socketTimeout || 3 * 60000, () => {
-            if (socket) {
-                socket.end();
-            }
-            handleResult(new Error('Request timeout: ' + info.options.path), null);
-        });
-        req.on('error', function (err) {
-            // err has statusCode property
-            // res should have headers
-            handleResult(err, null);
-        });
-        if (data && typeof data === 'string') {
-            req.write(data, 'utf8');
-        }
-        if (data && typeof data !== 'string') {
-            data.on('close', function () {
-                req.end();
-            });
-            data.pipe(req);
-        }
-        else {
-            req.end();
-        }
-    }
-    /**
-     * Gets an http agent. This function is useful when you need an http agent that handles
-     * routing through a proxy server - depending upon the url and proxy environment variables.
-     * @param serverUrl  The server URL where the request will be sent. For example, https://api.github.com
-     */
-    getAgent(serverUrl) {
-        let parsedUrl = url.parse(serverUrl);
-        return this._getAgent(parsedUrl);
-    }
-    _prepareRequest(method, requestUrl, headers) {
-        const info = {};
-        info.parsedUrl = requestUrl;
-        const usingSsl = info.parsedUrl.protocol === 'https:';
-        info.httpModule = usingSsl ? https : http;
-        const defaultPort = usingSsl ? 443 : 80;
-        info.options = {};
-        info.options.host = info.parsedUrl.hostname;
-        info.options.port = info.parsedUrl.port
-            ? parseInt(info.parsedUrl.port)
-            : defaultPort;
-        info.options.path =
-            (info.parsedUrl.pathname || '') + (info.parsedUrl.search || '');
-        info.options.method = method;
-        info.options.headers = this._mergeHeaders(headers);
-        if (this.userAgent != null) {
-            info.options.headers['user-agent'] = this.userAgent;
-        }
-        info.options.agent = this._getAgent(info.parsedUrl);
-        // gives handlers an opportunity to participate
-        if (this.handlers) {
-            this.handlers.forEach(handler => {
-                handler.prepareRequest(info.options);
-            });
-        }
-        return info;
-    }
-    _mergeHeaders(headers) {
-        const lowercaseKeys = obj => Object.keys(obj).reduce((c, k) => ((c[k.toLowerCase()] = obj[k]), c), {});
-        if (this.requestOptions && this.requestOptions.headers) {
-            return Object.assign({}, lowercaseKeys(this.requestOptions.headers), lowercaseKeys(headers));
-        }
-        return lowercaseKeys(headers || {});
-    }
-    _getExistingOrDefaultHeader(additionalHeaders, header, _default) {
-        const lowercaseKeys = obj => Object.keys(obj).reduce((c, k) => ((c[k.toLowerCase()] = obj[k]), c), {});
-        let clientHeader;
-        if (this.requestOptions && this.requestOptions.headers) {
-            clientHeader = lowercaseKeys(this.requestOptions.headers)[header];
-        }
-        return additionalHeaders[header] || clientHeader || _default;
-    }
-    _getAgent(parsedUrl) {
-        let agent;
-        let proxyUrl = pm.getProxyUrl(parsedUrl);
-        let useProxy = proxyUrl && proxyUrl.hostname;
-        if (this._keepAlive && useProxy) {
-            agent = this._proxyAgent;
-        }
-        if (this._keepAlive && !useProxy) {
-            agent = this._agent;
-        }
-        // if agent is already assigned use that agent.
-        if (!!agent) {
-            return agent;
-        }
-        const usingSsl = parsedUrl.protocol === 'https:';
-        let maxSockets = 100;
-        if (!!this.requestOptions) {
-            maxSockets = this.requestOptions.maxSockets || http.globalAgent.maxSockets;
-        }
-        if (useProxy) {
-            // If using proxy, need tunnel
-            if (!tunnel) {
-                tunnel = __webpack_require__(299);
-            }
-            const agentOptions = {
-                maxSockets: maxSockets,
-                keepAlive: this._keepAlive,
-                proxy: {
-                    proxyAuth: proxyUrl.auth,
-                    host: proxyUrl.hostname,
-                    port: proxyUrl.port
-                }
-            };
-            let tunnelAgent;
-            const overHttps = proxyUrl.protocol === 'https:';
-            if (usingSsl) {
-                tunnelAgent = overHttps ? tunnel.httpsOverHttps : tunnel.httpsOverHttp;
-            }
-            else {
-                tunnelAgent = overHttps ? tunnel.httpOverHttps : tunnel.httpOverHttp;
-            }
-            agent = tunnelAgent(agentOptions);
-            this._proxyAgent = agent;
-        }
-        // if reusing agent across request and tunneling agent isn't assigned create a new agent
-        if (this._keepAlive && !agent) {
-            const options = { keepAlive: this._keepAlive, maxSockets: maxSockets };
-            agent = usingSsl ? new https.Agent(options) : new http.Agent(options);
-            this._agent = agent;
-        }
-        // if not using private agent and tunnel agent isn't setup then use global agent
-        if (!agent) {
-            agent = usingSsl ? https.globalAgent : http.globalAgent;
-        }
-        if (usingSsl && this._ignoreSslError) {
-            // we don't want to set NODE_TLS_REJECT_UNAUTHORIZED=0 since that will affect request for entire process
-            // http.RequestOptions doesn't expose a way to modify RequestOptions.agent.options
-            // we have to cast it to any and change it directly
-            agent.options = Object.assign(agent.options || {}, {
-                rejectUnauthorized: false
-            });
-        }
-        return agent;
-    }
-    _performExponentialBackoff(retryNumber) {
-        retryNumber = Math.min(ExponentialBackoffCeiling, retryNumber);
-        const ms = ExponentialBackoffTimeSlice * Math.pow(2, retryNumber);
-        return new Promise(resolve => setTimeout(() => resolve(), ms));
-    }
-    static dateTimeDeserializer(key, value) {
-        if (typeof value === 'string') {
-            let a = new Date(value);
-            if (!isNaN(a.valueOf())) {
-                return a;
-            }
-        }
-        return value;
-    }
-    async _processResponse(res, options) {
-        return new Promise(async (resolve, reject) => {
-            const statusCode = res.message.statusCode;
-            const response = {
-                statusCode: statusCode,
-                result: null,
-                headers: {}
-            };
-            // not found leads to null obj returned
-            if (statusCode == HttpCodes.NotFound) {
-                resolve(response);
-            }
-            let obj;
-            let contents;
-            // get the result from the body
-            try {
-                contents = await res.readBody();
-                if (contents && contents.length > 0) {
-                    if (options && options.deserializeDates) {
-                        obj = JSON.parse(contents, HttpClient.dateTimeDeserializer);
-                    }
-                    else {
-                        obj = JSON.parse(contents);
-                    }
-                    response.result = obj;
-                }
-                response.headers = res.message.headers;
-            }
-            catch (err) {
-                // Invalid resource (contents not json);  leaving result obj null
-            }
-            // note that 3xx redirects are handled by the http layer.
-            if (statusCode > 299) {
-                let msg;
-                // if exception/error in body, attempt to get better error
-                if (obj && obj.message) {
-                    msg = obj.message;
-                }
-                else if (contents && contents.length > 0) {
-                    // it may be the case that the exception is in the body message as string
-                    msg = contents;
-                }
-                else {
-                    msg = 'Failed request: (' + statusCode + ')';
-                }
-                let err = new Error(msg);
-                // attach statusCode and body obj (if available) to the error object
-                err['statusCode'] = statusCode;
-                if (response.result) {
-                    err['result'] = response.result;
-                }
-                reject(err);
-            }
-            else {
-                resolve(response);
-            }
-        });
-    }
-}
-exports.HttpClient = HttpClient;
-
-
-/***/ }),
-
-/***/ 378:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-const path = __webpack_require__(622);
-const pathKey = __webpack_require__(496);
-
-module.exports = opts => {
-	opts = Object.assign({
-		cwd: process.cwd(),
-		path: process.env[pathKey()]
-	}, opts);
-
-	let prev;
-	let pth = path.resolve(opts.cwd);
-	const ret = [];
-
-	while (prev !== pth) {
-		ret.push(path.join(pth, 'node_modules/.bin'));
-		prev = pth;
-		pth = path.resolve(pth, '..');
-	}
-
-	// ensure the running `node` binary is used
-	ret.push(path.dirname(process.execPath));
-
-	return ret.concat(opts.path).join(path.delimiter);
-};
-
-module.exports.env = opts => {
-	opts = Object.assign({
-		env: process.env
-	}, opts);
-
-	const env = Object.assign({}, opts.env);
-	const path = pathKey({env});
-
-	opts.path = env[path];
-	env[path] = module.exports(opts);
-
-	return env;
-};
-
-
-/***/ }),
-
-/***/ 381:
-/***/ (function(module) {
-
-"use strict";
-
-module.exports = function (x) {
-	var lf = typeof x === 'string' ? '\n' : '\n'.charCodeAt();
-	var cr = typeof x === 'string' ? '\r' : '\r'.charCodeAt();
-
-	if (x[x.length - 1] === lf) {
-		x = x.slice(0, x.length - 1);
-	}
-
-	if (x[x.length - 1] === cr) {
-		x = x.slice(0, x.length - 1);
-	}
-
-	return x;
-};
-
-
-/***/ }),
-
-/***/ 413:
-/***/ (function(module) {
-
-module.exports = require("stream");
-
-/***/ }),
-
-/***/ 433:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.Context = void 0;
-const fs_1 = __webpack_require__(747);
-const os_1 = __webpack_require__(87);
-class Context {
-    /**
-     * Hydrate the context from the environment
-     */
-    constructor() {
-        this.payload = {};
-        if (process.env.GITHUB_EVENT_PATH) {
-            if (fs_1.existsSync(process.env.GITHUB_EVENT_PATH)) {
-                this.payload = JSON.parse(fs_1.readFileSync(process.env.GITHUB_EVENT_PATH, { encoding: 'utf8' }));
-            }
-            else {
-                const path = process.env.GITHUB_EVENT_PATH;
-                process.stdout.write(`GITHUB_EVENT_PATH ${path} does not exist${os_1.EOL}`);
-            }
-        }
-        this.eventName = process.env.GITHUB_EVENT_NAME;
-        this.sha = process.env.GITHUB_SHA;
-        this.ref = process.env.GITHUB_REF;
-        this.workflow = process.env.GITHUB_WORKFLOW;
-        this.action = process.env.GITHUB_ACTION;
-        this.actor = process.env.GITHUB_ACTOR;
-        this.job = process.env.GITHUB_JOB;
-        this.runNumber = parseInt(process.env.GITHUB_RUN_NUMBER, 10);
-        this.runId = parseInt(process.env.GITHUB_RUN_ID, 10);
-    }
-    get issue() {
-        const payload = this.payload;
-        return Object.assign(Object.assign({}, this.repo), { number: (payload.issue || payload.pull_request || payload).number });
-    }
-    get repo() {
-        if (process.env.GITHUB_REPOSITORY) {
-            const [owner, repo] = process.env.GITHUB_REPOSITORY.split('/');
-            return { owner, repo };
-        }
-        if (this.payload.repository) {
-            return {
-                owner: this.payload.repository.owner.login,
-                repo: this.payload.repository.name
-            };
-        }
-        throw new Error("context.repo requires a GITHUB_REPOSITORY environment variable like 'owner/repo'");
-    }
-}
-exports.Context = Context;
-//# sourceMappingURL=context.js.map
-
-/***/ }),
-
-/***/ 434:
-/***/ (function(module) {
-
-module.exports = register
-
-function register (state, name, method, options) {
-  if (typeof method !== 'function') {
-    throw new Error('method for before hook must be a function')
-  }
-
-  if (!options) {
-    options = {}
-  }
-
-  if (Array.isArray(name)) {
-    return name.reverse().reduce(function (callback, name) {
-      return register.bind(null, state, name, callback, options)
-    }, method)()
-  }
-
-  return Promise.resolve()
-    .then(function () {
-      if (!state.registry[name]) {
-        return method(options)
-      }
-
-      return (state.registry[name]).reduce(function (method, registered) {
-        return registered.hook.bind(null, method, options)
-      }, method)()
-    })
-}
-
-
-/***/ }),
-
-/***/ 436:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-var shebangRegex = __webpack_require__(180);
-
-module.exports = function (str) {
-	var match = str.match(shebangRegex);
-
-	if (!match) {
-		return null;
-	}
-
-	var arr = match[0].replace(/#! ?/, '').split(' ');
-	var bin = arr[0].split('/').pop();
-	var arg = arr[1];
-
-	return (bin === 'env' ?
-		arg :
-		bin + (arg ? ' ' + arg : '')
-	);
-};
-
-
-/***/ }),
-
-/***/ 441:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-const pump = __webpack_require__(538);
-const bufferStream = __webpack_require__(588);
-
-class MaxBufferError extends Error {
-	constructor() {
-		super('maxBuffer exceeded');
-		this.name = 'MaxBufferError';
-	}
-}
-
-function getStream(inputStream, options) {
-	if (!inputStream) {
-		return Promise.reject(new Error('Expected a stream'));
-	}
-
-	options = Object.assign({maxBuffer: Infinity}, options);
-
-	const {maxBuffer} = options;
-
-	let stream;
-	return new Promise((resolve, reject) => {
-		const rejectPromise = error => {
-			if (error) { // A null check
-				error.bufferedData = stream.getBufferedValue();
-			}
-			reject(error);
-		};
-
-		stream = pump(inputStream, bufferStream(options), error => {
-			if (error) {
-				rejectPromise(error);
-				return;
-			}
-
-			resolve();
-		});
-
-		stream.on('data', () => {
-			if (stream.getBufferedLength() > maxBuffer) {
-				rejectPromise(new MaxBufferError());
-			}
-		});
-	}).then(() => stream.getBufferedValue());
-}
-
-module.exports = getStream;
-module.exports.buffer = (stream, options) => getStream(stream, Object.assign({}, options, {encoding: 'buffer'}));
-module.exports.array = (stream, options) => getStream(stream, Object.assign({}, options, {array: true}));
-module.exports.MaxBufferError = MaxBufferError;
-
-
-/***/ }),
-
-/***/ 447:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  "use strict";
-  var bom, defaults, events, isEmpty, processItem, processors, sax, setImmediate,
-    bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  sax = __webpack_require__(499);
-
-  events = __webpack_require__(614);
-
-  bom = __webpack_require__(848);
-
-  processors = __webpack_require__(167);
-
-  setImmediate = __webpack_require__(213).setImmediate;
-
-  defaults = __webpack_require__(705).defaults;
-
-  isEmpty = function(thing) {
-    return typeof thing === "object" && (thing != null) && Object.keys(thing).length === 0;
-  };
-
-  processItem = function(processors, item, key) {
-    var i, len, process;
-    for (i = 0, len = processors.length; i < len; i++) {
-      process = processors[i];
-      item = process(item, key);
-    }
-    return item;
-  };
-
-  exports.Parser = (function(superClass) {
-    extend(Parser, superClass);
-
-    function Parser(opts) {
-      this.parseStringPromise = bind(this.parseStringPromise, this);
-      this.parseString = bind(this.parseString, this);
-      this.reset = bind(this.reset, this);
-      this.assignOrPush = bind(this.assignOrPush, this);
-      this.processAsync = bind(this.processAsync, this);
-      var key, ref, value;
-      if (!(this instanceof exports.Parser)) {
-        return new exports.Parser(opts);
-      }
-      this.options = {};
-      ref = defaults["0.2"];
-      for (key in ref) {
-        if (!hasProp.call(ref, key)) continue;
-        value = ref[key];
-        this.options[key] = value;
-      }
-      for (key in opts) {
-        if (!hasProp.call(opts, key)) continue;
-        value = opts[key];
-        this.options[key] = value;
-      }
-      if (this.options.xmlns) {
-        this.options.xmlnskey = this.options.attrkey + "ns";
-      }
-      if (this.options.normalizeTags) {
-        if (!this.options.tagNameProcessors) {
-          this.options.tagNameProcessors = [];
-        }
-        this.options.tagNameProcessors.unshift(processors.normalize);
-      }
-      this.reset();
-    }
-
-    Parser.prototype.processAsync = function() {
-      var chunk, err;
-      try {
-        if (this.remaining.length <= this.options.chunkSize) {
-          chunk = this.remaining;
-          this.remaining = '';
-          this.saxParser = this.saxParser.write(chunk);
-          return this.saxParser.close();
-        } else {
-          chunk = this.remaining.substr(0, this.options.chunkSize);
-          this.remaining = this.remaining.substr(this.options.chunkSize, this.remaining.length);
-          this.saxParser = this.saxParser.write(chunk);
-          return setImmediate(this.processAsync);
-        }
-      } catch (error1) {
-        err = error1;
-        if (!this.saxParser.errThrown) {
-          this.saxParser.errThrown = true;
-          return this.emit(err);
-        }
-      }
-    };
-
-    Parser.prototype.assignOrPush = function(obj, key, newValue) {
-      if (!(key in obj)) {
-        if (!this.options.explicitArray) {
-          return obj[key] = newValue;
-        } else {
-          return obj[key] = [newValue];
-        }
-      } else {
-        if (!(obj[key] instanceof Array)) {
-          obj[key] = [obj[key]];
-        }
-        return obj[key].push(newValue);
-      }
-    };
-
-    Parser.prototype.reset = function() {
-      var attrkey, charkey, ontext, stack;
-      this.removeAllListeners();
-      this.saxParser = sax.parser(this.options.strict, {
-        trim: false,
-        normalize: false,
-        xmlns: this.options.xmlns
-      });
-      this.saxParser.errThrown = false;
-      this.saxParser.onerror = (function(_this) {
-        return function(error) {
-          _this.saxParser.resume();
-          if (!_this.saxParser.errThrown) {
-            _this.saxParser.errThrown = true;
-            return _this.emit("error", error);
-          }
-        };
-      })(this);
-      this.saxParser.onend = (function(_this) {
-        return function() {
-          if (!_this.saxParser.ended) {
-            _this.saxParser.ended = true;
-            return _this.emit("end", _this.resultObject);
-          }
-        };
-      })(this);
-      this.saxParser.ended = false;
-      this.EXPLICIT_CHARKEY = this.options.explicitCharkey;
-      this.resultObject = null;
-      stack = [];
-      attrkey = this.options.attrkey;
-      charkey = this.options.charkey;
-      this.saxParser.onopentag = (function(_this) {
-        return function(node) {
-          var key, newValue, obj, processedKey, ref;
-          obj = {};
-          obj[charkey] = "";
-          if (!_this.options.ignoreAttrs) {
-            ref = node.attributes;
-            for (key in ref) {
-              if (!hasProp.call(ref, key)) continue;
-              if (!(attrkey in obj) && !_this.options.mergeAttrs) {
-                obj[attrkey] = {};
-              }
-              newValue = _this.options.attrValueProcessors ? processItem(_this.options.attrValueProcessors, node.attributes[key], key) : node.attributes[key];
-              processedKey = _this.options.attrNameProcessors ? processItem(_this.options.attrNameProcessors, key) : key;
-              if (_this.options.mergeAttrs) {
-                _this.assignOrPush(obj, processedKey, newValue);
-              } else {
-                obj[attrkey][processedKey] = newValue;
-              }
-            }
-          }
-          obj["#name"] = _this.options.tagNameProcessors ? processItem(_this.options.tagNameProcessors, node.name) : node.name;
-          if (_this.options.xmlns) {
-            obj[_this.options.xmlnskey] = {
-              uri: node.uri,
-              local: node.local
-            };
-          }
-          return stack.push(obj);
-        };
-      })(this);
-      this.saxParser.onclosetag = (function(_this) {
-        return function() {
-          var cdata, emptyStr, key, node, nodeName, obj, objClone, old, s, xpath;
-          obj = stack.pop();
-          nodeName = obj["#name"];
-          if (!_this.options.explicitChildren || !_this.options.preserveChildrenOrder) {
-            delete obj["#name"];
-          }
-          if (obj.cdata === true) {
-            cdata = obj.cdata;
-            delete obj.cdata;
-          }
-          s = stack[stack.length - 1];
-          if (obj[charkey].match(/^\s*$/) && !cdata) {
-            emptyStr = obj[charkey];
-            delete obj[charkey];
-          } else {
-            if (_this.options.trim) {
-              obj[charkey] = obj[charkey].trim();
-            }
-            if (_this.options.normalize) {
-              obj[charkey] = obj[charkey].replace(/\s{2,}/g, " ").trim();
-            }
-            obj[charkey] = _this.options.valueProcessors ? processItem(_this.options.valueProcessors, obj[charkey], nodeName) : obj[charkey];
-            if (Object.keys(obj).length === 1 && charkey in obj && !_this.EXPLICIT_CHARKEY) {
-              obj = obj[charkey];
-            }
-          }
-          if (isEmpty(obj)) {
-            obj = _this.options.emptyTag !== '' ? _this.options.emptyTag : emptyStr;
-          }
-          if (_this.options.validator != null) {
-            xpath = "/" + ((function() {
-              var i, len, results;
-              results = [];
-              for (i = 0, len = stack.length; i < len; i++) {
-                node = stack[i];
-                results.push(node["#name"]);
-              }
-              return results;
-            })()).concat(nodeName).join("/");
-            (function() {
-              var err;
-              try {
-                return obj = _this.options.validator(xpath, s && s[nodeName], obj);
-              } catch (error1) {
-                err = error1;
-                return _this.emit("error", err);
-              }
-            })();
-          }
-          if (_this.options.explicitChildren && !_this.options.mergeAttrs && typeof obj === 'object') {
-            if (!_this.options.preserveChildrenOrder) {
-              node = {};
-              if (_this.options.attrkey in obj) {
-                node[_this.options.attrkey] = obj[_this.options.attrkey];
-                delete obj[_this.options.attrkey];
-              }
-              if (!_this.options.charsAsChildren && _this.options.charkey in obj) {
-                node[_this.options.charkey] = obj[_this.options.charkey];
-                delete obj[_this.options.charkey];
-              }
-              if (Object.getOwnPropertyNames(obj).length > 0) {
-                node[_this.options.childkey] = obj;
-              }
-              obj = node;
-            } else if (s) {
-              s[_this.options.childkey] = s[_this.options.childkey] || [];
-              objClone = {};
-              for (key in obj) {
-                if (!hasProp.call(obj, key)) continue;
-                objClone[key] = obj[key];
-              }
-              s[_this.options.childkey].push(objClone);
-              delete obj["#name"];
-              if (Object.keys(obj).length === 1 && charkey in obj && !_this.EXPLICIT_CHARKEY) {
-                obj = obj[charkey];
-              }
-            }
-          }
-          if (stack.length > 0) {
-            return _this.assignOrPush(s, nodeName, obj);
-          } else {
-            if (_this.options.explicitRoot) {
-              old = obj;
-              obj = {};
-              obj[nodeName] = old;
-            }
-            _this.resultObject = obj;
-            _this.saxParser.ended = true;
-            return _this.emit("end", _this.resultObject);
-          }
-        };
-      })(this);
-      ontext = (function(_this) {
-        return function(text) {
-          var charChild, s;
-          s = stack[stack.length - 1];
-          if (s) {
-            s[charkey] += text;
-            if (_this.options.explicitChildren && _this.options.preserveChildrenOrder && _this.options.charsAsChildren && (_this.options.includeWhiteChars || text.replace(/\\n/g, '').trim() !== '')) {
-              s[_this.options.childkey] = s[_this.options.childkey] || [];
-              charChild = {
-                '#name': '__text__'
-              };
-              charChild[charkey] = text;
-              if (_this.options.normalize) {
-                charChild[charkey] = charChild[charkey].replace(/\s{2,}/g, " ").trim();
-              }
-              s[_this.options.childkey].push(charChild);
-            }
-            return s;
-          }
-        };
-      })(this);
-      this.saxParser.ontext = ontext;
-      return this.saxParser.oncdata = (function(_this) {
-        return function(text) {
-          var s;
-          s = ontext(text);
-          if (s) {
-            return s.cdata = true;
-          }
-        };
-      })(this);
-    };
-
-    Parser.prototype.parseString = function(str, cb) {
-      var err;
-      if ((cb != null) && typeof cb === "function") {
-        this.on("end", function(result) {
-          this.reset();
-          return cb(null, result);
-        });
-        this.on("error", function(err) {
-          this.reset();
-          return cb(err);
-        });
-      }
-      try {
-        str = str.toString();
-        if (str.trim() === '') {
-          this.emit("end", null);
-          return true;
-        }
-        str = bom.stripBOM(str);
-        if (this.options.async) {
-          this.remaining = str;
-          setImmediate(this.processAsync);
-          return this.saxParser;
-        }
-        return this.saxParser.write(str).close();
-      } catch (error1) {
-        err = error1;
-        if (!(this.saxParser.errThrown || this.saxParser.ended)) {
-          this.emit('error', err);
-          return this.saxParser.errThrown = true;
-        } else if (this.saxParser.ended) {
-          throw err;
-        }
-      }
-    };
-
-    Parser.prototype.parseStringPromise = function(str) {
-      return new Promise((function(_this) {
-        return function(resolve, reject) {
-          return _this.parseString(str, function(err, value) {
-            if (err) {
-              return reject(err);
-            } else {
-              return resolve(value);
-            }
-          });
-        };
-      })(this));
-    };
-
-    return Parser;
-
-  })(events);
-
-  exports.parseString = function(str, a, b) {
-    var cb, options, parser;
-    if (b != null) {
-      if (typeof b === 'function') {
-        cb = b;
-      }
-      if (typeof a === 'object') {
-        options = a;
-      }
-    } else {
-      if (typeof a === 'function') {
-        cb = a;
-      }
-      options = {};
-    }
-    parser = new exports.Parser(options);
-    return parser.parseString(str, cb);
-  };
-
-  exports.parseStringPromise = function(str, a) {
-    var options, parser;
-    if (typeof a === 'object') {
-      options = a;
-    }
-    parser = new exports.Parser(options);
-    return parser.parseStringPromise(str);
-  };
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 451:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-const os = __webpack_require__(87);
-const macosRelease = __webpack_require__(122);
-const winRelease = __webpack_require__(452);
-
-const osName = (platform, release) => {
-	if (!platform && release) {
-		throw new Error('You can\'t specify a `release` without specifying `platform`');
-	}
-
-	platform = platform || os.platform();
-
-	let id;
-
-	if (platform === 'darwin') {
-		if (!release && os.platform() === 'darwin') {
-			release = os.release();
-		}
-
-		const prefix = release ? (Number(release.split('.')[0]) > 15 ? 'macOS' : 'OS X') : 'macOS';
-		id = release ? macosRelease(release).name : '';
-		return prefix + (id ? ' ' + id : '');
-	}
-
-	if (platform === 'linux') {
-		if (!release && os.platform() === 'linux') {
-			release = os.release();
-		}
-
-		id = release ? release.replace(/^(\d+\.\d+).*/, '$1') : '';
-		return 'Linux' + (id ? ' ' + id : '');
-	}
-
-	if (platform === 'win32') {
-		if (!release && os.platform() === 'win32') {
-			release = os.release();
-		}
-
-		id = release ? winRelease(release) : '';
-		return 'Windows' + (id ? ' ' + id : '');
-	}
-
-	return platform;
-};
-
-module.exports = osName;
-
-
-/***/ }),
-
-/***/ 452:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-const os = __webpack_require__(87);
-const execa = __webpack_require__(460);
-
-// Reference: https://www.gaijin.at/en/lstwinver.php
-const names = new Map([
-	['10.0', '10'],
-	['6.3', '8.1'],
-	['6.2', '8'],
-	['6.1', '7'],
-	['6.0', 'Vista'],
-	['5.2', 'Server 2003'],
-	['5.1', 'XP'],
-	['5.0', '2000'],
-	['4.9', 'ME'],
-	['4.1', '98'],
-	['4.0', '95']
-]);
-
-const windowsRelease = release => {
-	const version = /\d+\.\d/.exec(release || os.release());
-
-	if (release && !version) {
-		throw new Error('`release` argument doesn\'t match `n.n`');
-	}
-
-	const ver = (version || [])[0];
-
-	// Server 2008, 2012, 2016, and 2019 versions are ambiguous with desktop versions and must be detected at runtime.
-	// If `release` is omitted or we're on a Windows system, and the version number is an ambiguous version
-	// then use `wmic` to get the OS caption: https://msdn.microsoft.com/en-us/library/aa394531(v=vs.85).aspx
-	// If `wmic` is obsoloete (later versions of Windows 10), use PowerShell instead.
-	// If the resulting caption contains the year 2008, 2012, 2016 or 2019, it is a server version, so return a server OS name.
-	if ((!release || release === os.release()) && ['6.1', '6.2', '6.3', '10.0'].includes(ver)) {
-		let stdout;
-		try {
-			stdout = execa.sync('wmic', ['os', 'get', 'Caption']).stdout || '';
-		} catch (_) {
-			stdout = execa.sync('powershell', ['(Get-CimInstance -ClassName Win32_OperatingSystem).caption']).stdout || '';
-		}
-
-		const year = (stdout.match(/2008|2012|2016|2019/) || [])[0];
-
-		if (year) {
-			return `Server ${year}`;
-		}
-	}
-
-	return names.get(ver);
-};
-
-module.exports = windowsRelease;
-
-
-/***/ }),
-
-/***/ 457:
+/***/ 806:
 /***/ (function(module, exports) {
 
 exports = module.exports = SemVer
@@ -9803,802 +13392,425 @@ function coerce (version) {
 
 /***/ }),
 
-/***/ 460:
-/***/ (function(module, __unusedexports, __webpack_require__) {
+/***/ 808:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
 
-"use strict";
+// Generated by CoffeeScript 1.12.7
+(function() {
+  "use strict";
+  var builder, defaults, escapeCDATA, requiresCDATA, wrapCDATA,
+    hasProp = {}.hasOwnProperty;
 
-const path = __webpack_require__(622);
-const childProcess = __webpack_require__(129);
-const crossSpawn = __webpack_require__(878);
-const stripEof = __webpack_require__(381);
-const npmRunPath = __webpack_require__(378);
-const isStream = __webpack_require__(883);
-const _getStream = __webpack_require__(441);
-const pFinally = __webpack_require__(673);
-const onExit = __webpack_require__(704);
-const errname = __webpack_require__(297);
-const stdio = __webpack_require__(173);
+  builder = __webpack_require__(348);
 
-const TEN_MEGABYTES = 1000 * 1000 * 10;
+  defaults = __webpack_require__(566).defaults;
 
-function handleArgs(cmd, args, opts) {
-	let parsed;
-
-	opts = Object.assign({
-		extendEnv: true,
-		env: {}
-	}, opts);
-
-	if (opts.extendEnv) {
-		opts.env = Object.assign({}, process.env, opts.env);
-	}
-
-	if (opts.__winShell === true) {
-		delete opts.__winShell;
-		parsed = {
-			command: cmd,
-			args,
-			options: opts,
-			file: cmd,
-			original: {
-				cmd,
-				args
-			}
-		};
-	} else {
-		parsed = crossSpawn._parse(cmd, args, opts);
-	}
-
-	opts = Object.assign({
-		maxBuffer: TEN_MEGABYTES,
-		buffer: true,
-		stripEof: true,
-		preferLocal: true,
-		localDir: parsed.options.cwd || process.cwd(),
-		encoding: 'utf8',
-		reject: true,
-		cleanup: true
-	}, parsed.options);
-
-	opts.stdio = stdio(opts);
-
-	if (opts.preferLocal) {
-		opts.env = npmRunPath.env(Object.assign({}, opts, {cwd: opts.localDir}));
-	}
-
-	if (opts.detached) {
-		// #115
-		opts.cleanup = false;
-	}
-
-	if (process.platform === 'win32' && path.basename(parsed.command) === 'cmd.exe') {
-		// #116
-		parsed.args.unshift('/q');
-	}
-
-	return {
-		cmd: parsed.command,
-		args: parsed.args,
-		opts,
-		parsed
-	};
-}
-
-function handleInput(spawned, input) {
-	if (input === null || input === undefined) {
-		return;
-	}
-
-	if (isStream(input)) {
-		input.pipe(spawned.stdin);
-	} else {
-		spawned.stdin.end(input);
-	}
-}
-
-function handleOutput(opts, val) {
-	if (val && opts.stripEof) {
-		val = stripEof(val);
-	}
-
-	return val;
-}
-
-function handleShell(fn, cmd, opts) {
-	let file = '/bin/sh';
-	let args = ['-c', cmd];
-
-	opts = Object.assign({}, opts);
-
-	if (process.platform === 'win32') {
-		opts.__winShell = true;
-		file = process.env.comspec || 'cmd.exe';
-		args = ['/s', '/c', `"${cmd}"`];
-		opts.windowsVerbatimArguments = true;
-	}
-
-	if (opts.shell) {
-		file = opts.shell;
-		delete opts.shell;
-	}
-
-	return fn(file, args, opts);
-}
-
-function getStream(process, stream, {encoding, buffer, maxBuffer}) {
-	if (!process[stream]) {
-		return null;
-	}
-
-	let ret;
-
-	if (!buffer) {
-		// TODO: Use `ret = util.promisify(stream.finished)(process[stream]);` when targeting Node.js 10
-		ret = new Promise((resolve, reject) => {
-			process[stream]
-				.once('end', resolve)
-				.once('error', reject);
-		});
-	} else if (encoding) {
-		ret = _getStream(process[stream], {
-			encoding,
-			maxBuffer
-		});
-	} else {
-		ret = _getStream.buffer(process[stream], {maxBuffer});
-	}
-
-	return ret.catch(err => {
-		err.stream = stream;
-		err.message = `${stream} ${err.message}`;
-		throw err;
-	});
-}
-
-function makeError(result, options) {
-	const {stdout, stderr} = result;
-
-	let err = result.error;
-	const {code, signal} = result;
-
-	const {parsed, joinedCmd} = options;
-	const timedOut = options.timedOut || false;
-
-	if (!err) {
-		let output = '';
-
-		if (Array.isArray(parsed.opts.stdio)) {
-			if (parsed.opts.stdio[2] !== 'inherit') {
-				output += output.length > 0 ? stderr : `\n${stderr}`;
-			}
-
-			if (parsed.opts.stdio[1] !== 'inherit') {
-				output += `\n${stdout}`;
-			}
-		} else if (parsed.opts.stdio !== 'inherit') {
-			output = `\n${stderr}${stdout}`;
-		}
-
-		err = new Error(`Command failed: ${joinedCmd}${output}`);
-		err.code = code < 0 ? errname(code) : code;
-	}
-
-	err.stdout = stdout;
-	err.stderr = stderr;
-	err.failed = true;
-	err.signal = signal || null;
-	err.cmd = joinedCmd;
-	err.timedOut = timedOut;
-
-	return err;
-}
-
-function joinCmd(cmd, args) {
-	let joinedCmd = cmd;
-
-	if (Array.isArray(args) && args.length > 0) {
-		joinedCmd += ' ' + args.join(' ');
-	}
-
-	return joinedCmd;
-}
-
-module.exports = (cmd, args, opts) => {
-	const parsed = handleArgs(cmd, args, opts);
-	const {encoding, buffer, maxBuffer} = parsed.opts;
-	const joinedCmd = joinCmd(cmd, args);
-
-	let spawned;
-	try {
-		spawned = childProcess.spawn(parsed.cmd, parsed.args, parsed.opts);
-	} catch (err) {
-		return Promise.reject(err);
-	}
-
-	let removeExitHandler;
-	if (parsed.opts.cleanup) {
-		removeExitHandler = onExit(() => {
-			spawned.kill();
-		});
-	}
-
-	let timeoutId = null;
-	let timedOut = false;
-
-	const cleanup = () => {
-		if (timeoutId) {
-			clearTimeout(timeoutId);
-			timeoutId = null;
-		}
-
-		if (removeExitHandler) {
-			removeExitHandler();
-		}
-	};
-
-	if (parsed.opts.timeout > 0) {
-		timeoutId = setTimeout(() => {
-			timeoutId = null;
-			timedOut = true;
-			spawned.kill(parsed.opts.killSignal);
-		}, parsed.opts.timeout);
-	}
-
-	const processDone = new Promise(resolve => {
-		spawned.on('exit', (code, signal) => {
-			cleanup();
-			resolve({code, signal});
-		});
-
-		spawned.on('error', err => {
-			cleanup();
-			resolve({error: err});
-		});
-
-		if (spawned.stdin) {
-			spawned.stdin.on('error', err => {
-				cleanup();
-				resolve({error: err});
-			});
-		}
-	});
-
-	function destroy() {
-		if (spawned.stdout) {
-			spawned.stdout.destroy();
-		}
-
-		if (spawned.stderr) {
-			spawned.stderr.destroy();
-		}
-	}
-
-	const handlePromise = () => pFinally(Promise.all([
-		processDone,
-		getStream(spawned, 'stdout', {encoding, buffer, maxBuffer}),
-		getStream(spawned, 'stderr', {encoding, buffer, maxBuffer})
-	]).then(arr => {
-		const result = arr[0];
-		result.stdout = arr[1];
-		result.stderr = arr[2];
-
-		if (result.error || result.code !== 0 || result.signal !== null) {
-			const err = makeError(result, {
-				joinedCmd,
-				parsed,
-				timedOut
-			});
-
-			// TODO: missing some timeout logic for killed
-			// https://github.com/nodejs/node/blob/master/lib/child_process.js#L203
-			// err.killed = spawned.killed || killed;
-			err.killed = err.killed || spawned.killed;
-
-			if (!parsed.opts.reject) {
-				return err;
-			}
-
-			throw err;
-		}
-
-		return {
-			stdout: handleOutput(parsed.opts, result.stdout),
-			stderr: handleOutput(parsed.opts, result.stderr),
-			code: 0,
-			failed: false,
-			killed: false,
-			signal: null,
-			cmd: joinedCmd,
-			timedOut: false
-		};
-	}), destroy);
-
-	crossSpawn._enoent.hookChildProcess(spawned, parsed.parsed);
-
-	handleInput(spawned, parsed.opts.input);
-
-	spawned.then = (onfulfilled, onrejected) => handlePromise().then(onfulfilled, onrejected);
-	spawned.catch = onrejected => handlePromise().catch(onrejected);
-
-	return spawned;
-};
-
-// TODO: set `stderr: 'ignore'` when that option is implemented
-module.exports.stdout = (...args) => module.exports(...args).then(x => x.stdout);
-
-// TODO: set `stdout: 'ignore'` when that option is implemented
-module.exports.stderr = (...args) => module.exports(...args).then(x => x.stderr);
-
-module.exports.shell = (cmd, opts) => handleShell(module.exports, cmd, opts);
-
-module.exports.sync = (cmd, args, opts) => {
-	const parsed = handleArgs(cmd, args, opts);
-	const joinedCmd = joinCmd(cmd, args);
-
-	if (isStream(parsed.opts.input)) {
-		throw new TypeError('The `input` option cannot be a stream in sync mode');
-	}
-
-	const result = childProcess.spawnSync(parsed.cmd, parsed.args, parsed.opts);
-	result.code = result.status;
-
-	if (result.error || result.status !== 0 || result.signal !== null) {
-		const err = makeError(result, {
-			joinedCmd,
-			parsed
-		});
-
-		if (!parsed.opts.reject) {
-			return err;
-		}
-
-		throw err;
-	}
-
-	return {
-		stdout: handleOutput(parsed.opts, result.stdout),
-		stderr: handleOutput(parsed.opts, result.stderr),
-		code: 0,
-		failed: false,
-		signal: null,
-		cmd: joinedCmd,
-		timedOut: false
-	};
-};
-
-module.exports.shellSync = (cmd, opts) => handleShell(module.exports.sync, cmd, opts);
-
-
-/***/ }),
-
-/***/ 470:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-const fs = __webpack_require__(747);
-const propertyAppender = __webpack_require__(808).propertyAppender;
-
-/**
- *
- * @param {String} sourceFile Path to the file from which to read properties
- * @param {string} [encoding=utf-8] Default string encoding to use when reading files
- * @param {Function | Object} [propertiesAppender] A `propertiesAppender` function or configuration object to create one
- */
-function PropertiesReader (sourceFile, encoding, propertiesAppender) {
-   this._encoding = typeof encoding === 'string' && encoding || 'utf-8';
-   this._properties = {};
-   this._propertiesExpanded = {};
-
-   this.appender(propertiesAppender || {});
-   this.append(sourceFile, encoding);
-}
-
-/**
- * @type {String} The name of a section that should be prefixed on an property as it is added
- * @ignore
- */
-PropertiesReader.prototype._section = '';
-
-/**
- * Gets the number of properties that have been read into this PropertiesReader.
- *
- * @name PropertiesReader#length
- * @type {Number}
- */
-Object.defineProperty(PropertiesReader.prototype, 'length', {
-   configurable: false,
-   enumerable: false,
-   get () {
-      return Object.keys(this._properties).length;
-   }
-});
-
-/**
- * Define the property appending mechanism to be used by the instance.
- *
- * By default, duplicate sections will be collapsed when saving the properties. To disable this
- * feature, set the `allowDuplicateSections` appender configuration to `true`:
- *
- * ```
-const properties = propertiesReader('file.ini', 'utf-8', { allowDuplicateSections: true });
-const properties = propertiesReader('file.ini').appender({ allowDuplicateSections: true });
-```
- *
- * @param appender
- * @returns {PropertiesReader}
- */
-PropertiesReader.prototype.appender = function (appender) {
-   if (typeof appender === 'function') {
-      this._propertyAppender = appender;
-   }
-   else if (typeof appender === 'object') {
-      this._propertyAppender = propertyAppender(appender);
-   }
-
-   return this;
-};
-
-/**
- * Append a file to the properties into the PropertiesReader
- *
- * @param {string} sourceFile
- * @param {string} [encoding='utf-8']
- *
- * @return {PropertiesReader} this instance
- */
-PropertiesReader.prototype.append = function (sourceFile, encoding) {
-
-   if (sourceFile) {
-      this.read(fs.readFileSync(sourceFile, typeof encoding === 'string' && encoding || this._encoding));
-   }
-
-   return this;
-};
-
-/**
- * Reads any string input into the PropertiesReader
- *
- * @param {String} input
- * @return {PropertiesReader} this instance
- */
-PropertiesReader.prototype.read = function (input) {
-   delete this._section;
-   ('' + input).split('\n').forEach(this._readLine, this);
-   return this;
-};
-
-/**
- * Used as a processor for the array of input lines when reading from a source file
- * @param {String} propertyString
- */
-PropertiesReader.prototype._readLine = function (propertyString) {
-   if (!!(propertyString = propertyString.trim())) {
-      var section = /^\[([^=]+)]$/.exec(propertyString);
-      var property = !section && /^([^#=]+)(={0,1})(.*)$/.exec(propertyString);
-
-      if (section) {
-         this._section = section[1];
-      }
-      else if (property) {
-         section = this._section ? this._section + '.' : '';
-         this.set(section + property[1].trim(), property[3].trim());
-      }
-   }
-};
-
-/**
- * Calls the supplied function for each property
- *
- * @param {Function} fn
- * @param {Object} scope
- * @return {PropertiesReader}
- */
-PropertiesReader.prototype.each = function (fn, scope) {
-   for (var key in this._properties) {
-      if (this._properties.hasOwnProperty(key)) {
-         fn.call(scope || this, key, this._properties[key]);
-      }
-   }
-   return this;
-};
-
-/**
- * Given the supplied raw value, returns the parsed value
- */
-PropertiesReader.prototype._parsed = function (value) {
-
-   if (value !== null && value !== '' && !isNaN(value)) {
-      return +value;
-   }
-
-   if (value === 'true' || value === 'false') {
-      return value === 'true';
-   }
-
-   if (typeof value === "string") {
-      var replacements = {'\\n': '\n', '\\r': '\r', '\\t': '\t'};
-      return value.replace(/\\[nrt]/g, function (key) {
-         return replacements[key];
-      });
-   }
-
-   return value;
-};
-
-/**
- * Gets a single property value based on the full string key. When the property is not found in the
- * PropertiesReader, the return value will be null.
- *
- * @param {String} key
- * @return {*}
- */
-PropertiesReader.prototype.get = function (key) {
-   return this._parsed(this.getRaw(key));
-};
-
-/**
- * Gets the string representation as it was read from the properties file without coercions for type recognition.
- *
- * @param {string} key
- * @returns {string}
- */
-PropertiesReader.prototype.getRaw = function (key) {
-   return this._properties.hasOwnProperty(key) ? this._properties[key] : null;
-};
-
-/**
- * Sets the supplied key in the properties store with the supplied value, the value can be any string representation
- * that would be valid in a properties file (eg: true and false or numbers are converted to their real values).
- *
- * @param {String} key
- * @param {String} value
- * @return {PropertiesReader}
- */
-PropertiesReader.prototype.set = function (key, value) {
-   var parsedValue = ('' + value).trim();
-
-   this._properties = this._propertyAppender(this._properties, key, parsedValue);
-
-   var expanded = key.split('.');
-   var source = this._propertiesExpanded;
-
-   while (expanded.length > 1) {
-      var step = expanded.shift();
-      if (expanded.length >= 1 && typeof source[step] === 'string') {
-         source[step] = {'': source[step]};
-      }
-      source = (source[step] = source[step] || {});
-   }
-
-   if (typeof parsedValue === 'string' && typeof  source[expanded[0]] === 'object') {
-      source[expanded[0]][''] = parsedValue;
-   }
-   else {
-      source[expanded[0]] = parsedValue;
-   }
-
-   return this;
-};
-
-/**
- * Gets the object that represents the exploded properties.
- *
- * Note that this object is currently mutable without the option to persist or interrogate changes.
- *
- * @return {*}
- */
-PropertiesReader.prototype.path = function () {
-   return this._propertiesExpanded;
-};
-
-/**
- * Gets the object that represents all properties.
- *
- * @returns {Object}
- */
-PropertiesReader.prototype.getAllProperties = function () {
-   var properties = {};
-   this.each(function (key, value) {
-      properties[key] = value;
-   });
-   return properties;
-};
-
-/**
- * Creates and returns a new PropertiesReader based on the values in this instance.
- * @return {PropertiesReader}
- */
-PropertiesReader.prototype.clone = function () {
-   var propertiesReader = new PropertiesReader(null);
-   this.each(propertiesReader.set, propertiesReader);
-
-   return propertiesReader;
-};
-
-/**
- * Return a json from a root properties
- * @param root
- * @returns {{}}
- */
-PropertiesReader.prototype.getByRoot = function (root) {
-   var keys = Object.keys(this._properties);
-   var outObj = {};
-
-   for (var i = 0, prefixLength = String(root).length; i < keys.length; i++) {
-      var key = keys[i];
-
-      if (key.indexOf(root) === 0 && key.charAt(prefixLength) === '.') {
-         outObj[key.substr(prefixLength + 1)] = this.get(key);
-      }
-   }
-
-   return outObj;
-};
-
-/**
- * Binds the current properties object and all values in it to the supplied express app.
- *
- * @param {Object} app The express app (or any object that has a `set` function)
- * @param {String} [basePath] The absolute prefix to use for all path properties - defaults to the cwd.
- * @param {Boolean} [makePaths=false] When true will attempt to create the directory structure to any path property
- */
-PropertiesReader.prototype.bindToExpress = function (app, basePath, makePaths) {
-   var Path = __webpack_require__(622);
-
-   if (!/\/$/.test(basePath = basePath || process.cwd())) {
-      basePath += '/';
-   }
-
-   this.each(function (key, value) {
-      if (value && /\.(path|dir)$/.test(key)) {
-         value = Path.join(basePath, Path.relative(basePath, value));
-         this.set(key, value);
-
-         try {
-            var directoryPath = /dir$/.test(key) ? value : Path.dirname(value);
-            if (makePaths) {
-               __webpack_require__(944).sync(directoryPath);
-            }
-            else if (!fs.statSync(directoryPath).isDirectory()) {
-               throw new Error("Path is not a directory that already exists");
-            }
-         }
-         catch (e) {
-            throw new Error("Unable to create directory " + value);
-         }
-      }
-
-      app.set(key, this.get(key));
-
-      if (/^browser\./.test(key)) {
-         app.locals[key.substr(8)] = this.get(key);
-      }
-   }, this);
-
-   app.set('properties', this);
-
-   return this;
-};
-
-/**
- * Stringify properties
- *
- * @returns {string[]} array of stringified properties
- */
-PropertiesReader.prototype._stringifyProperties = function () {
-   var lines = [];
-   var section = null;
-   this.each(function (key, value) {
-      var tokens = key.split('.');
-      if (tokens.length > 1) {
-         if (section !== tokens[0]) {
-            section = tokens[0];
-            lines.push('[' + section + ']');
-         }
-         key = tokens.slice(1).join('.');
-      }
-      else {
-         section = null;
-      }
-
-      lines.push(key + '=' + value);
-   });
-   return lines;
-};
-
-/**
- * Write properties into the file
- *
- * @param {String} destFile
- * @param {function} onComplete callback
- */
-PropertiesReader.prototype.save = function (destFile, onComplete) {
-   const content = this._stringifyProperties().join('\n');
-   const onDone = new Promise((done, fail) => {
-      fs.writeFile(destFile, content, (err) => {
-         if (err) {
-            return fail(err);
-         }
-
-         done(content);
-      });
-   });
-
-   if (typeof onComplete === 'function') {
-      if (onComplete.length > 1) {
-         onDone.then(onComplete.bind(null, null), onComplete.bind(null));
-      }
-      else {
-         onDone.then(onComplete)
-      }
-   }
-
-   return onDone;
-};
-
-module.exports = PropertiesReader;
-
-
-/***/ }),
-
-/***/ 475:
-/***/ (function(__unusedmodule, exports) {
-
-"use strict";
-
-
-Object.defineProperty(exports, '__esModule', { value: true });
-
-async function auth(token) {
-  const tokenType = token.split(/\./).length === 3 ? "app" : /^v\d+\./.test(token) ? "installation" : "oauth";
-  return {
-    type: "token",
-    token: token,
-    tokenType
+  requiresCDATA = function(entry) {
+    return typeof entry === "string" && (entry.indexOf('&') >= 0 || entry.indexOf('>') >= 0 || entry.indexOf('<') >= 0);
   };
-}
 
-/**
- * Prefix token for usage in the Authorization header
- *
- * @param token OAuth token or JSON Web Token
- */
-function withAuthorizationPrefix(token) {
-  if (token.split(/\./).length === 3) {
-    return `bearer ${token}`;
-  }
+  wrapCDATA = function(entry) {
+    return "<![CDATA[" + (escapeCDATA(entry)) + "]]>";
+  };
 
-  return `token ${token}`;
-}
+  escapeCDATA = function(entry) {
+    return entry.replace(']]>', ']]]]><![CDATA[>');
+  };
 
-async function hook(token, request, route, parameters) {
-  const endpoint = request.endpoint.merge(route, parameters);
-  endpoint.headers.authorization = withAuthorizationPrefix(token);
-  return request(endpoint);
-}
+  exports.Builder = (function() {
+    function Builder(opts) {
+      var key, ref, value;
+      this.options = {};
+      ref = defaults["0.2"];
+      for (key in ref) {
+        if (!hasProp.call(ref, key)) continue;
+        value = ref[key];
+        this.options[key] = value;
+      }
+      for (key in opts) {
+        if (!hasProp.call(opts, key)) continue;
+        value = opts[key];
+        this.options[key] = value;
+      }
+    }
 
-const createTokenAuth = function createTokenAuth(token) {
-  if (!token) {
-    throw new Error("[@octokit/auth-token] No token passed to createTokenAuth");
-  }
+    Builder.prototype.buildObject = function(rootObj) {
+      var attrkey, charkey, render, rootElement, rootName;
+      attrkey = this.options.attrkey;
+      charkey = this.options.charkey;
+      if ((Object.keys(rootObj).length === 1) && (this.options.rootName === defaults['0.2'].rootName)) {
+        rootName = Object.keys(rootObj)[0];
+        rootObj = rootObj[rootName];
+      } else {
+        rootName = this.options.rootName;
+      }
+      render = (function(_this) {
+        return function(element, obj) {
+          var attr, child, entry, index, key, value;
+          if (typeof obj !== 'object') {
+            if (_this.options.cdata && requiresCDATA(obj)) {
+              element.raw(wrapCDATA(obj));
+            } else {
+              element.txt(obj);
+            }
+          } else if (Array.isArray(obj)) {
+            for (index in obj) {
+              if (!hasProp.call(obj, index)) continue;
+              child = obj[index];
+              for (key in child) {
+                entry = child[key];
+                element = render(element.ele(key), entry).up();
+              }
+            }
+          } else {
+            for (key in obj) {
+              if (!hasProp.call(obj, key)) continue;
+              child = obj[key];
+              if (key === attrkey) {
+                if (typeof child === "object") {
+                  for (attr in child) {
+                    value = child[attr];
+                    element = element.att(attr, value);
+                  }
+                }
+              } else if (key === charkey) {
+                if (_this.options.cdata && requiresCDATA(child)) {
+                  element = element.raw(wrapCDATA(child));
+                } else {
+                  element = element.txt(child);
+                }
+              } else if (Array.isArray(child)) {
+                for (index in child) {
+                  if (!hasProp.call(child, index)) continue;
+                  entry = child[index];
+                  if (typeof entry === 'string') {
+                    if (_this.options.cdata && requiresCDATA(entry)) {
+                      element = element.ele(key).raw(wrapCDATA(entry)).up();
+                    } else {
+                      element = element.ele(key, entry).up();
+                    }
+                  } else {
+                    element = render(element.ele(key), entry).up();
+                  }
+                }
+              } else if (typeof child === "object") {
+                element = render(element.ele(key), child).up();
+              } else {
+                if (typeof child === 'string' && _this.options.cdata && requiresCDATA(child)) {
+                  element = element.ele(key).raw(wrapCDATA(child)).up();
+                } else {
+                  if (child == null) {
+                    child = '';
+                  }
+                  element = element.ele(key, child.toString()).up();
+                }
+              }
+            }
+          }
+          return element;
+        };
+      })(this);
+      rootElement = builder.create(rootName, this.options.xmldec, this.options.doctype, {
+        headless: this.options.headless,
+        allowSurrogateChars: this.options.allowSurrogateChars
+      });
+      return render(rootElement, rootObj).end(this.options.renderOpts);
+    };
 
-  if (typeof token !== "string") {
-    throw new Error("[@octokit/auth-token] Token passed to createTokenAuth is not a string");
-  }
+    return Builder;
 
-  token = token.replace(/^(token|bearer) +/i, "");
-  return Object.assign(auth.bind(null, token), {
-    hook: hook.bind(null, token)
-  });
-};
+  })();
 
-exports.createTokenAuth = createTokenAuth;
-//# sourceMappingURL=index.js.map
+}).call(this);
 
 
 /***/ }),
 
-/***/ 496:
+/***/ 821:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+module.exports = isexe
+isexe.sync = sync
+
+var fs = __webpack_require__(747)
+
+function isexe (path, options, cb) {
+  fs.stat(path, function (er, stat) {
+    cb(er, er ? false : checkStat(stat, options))
+  })
+}
+
+function sync (path, options) {
+  return checkStat(fs.statSync(path), options)
+}
+
+function checkStat (stat, options) {
+  return stat.isFile() && checkMode(stat, options)
+}
+
+function checkMode (stat, options) {
+  var mod = stat.mode
+  var uid = stat.uid
+  var gid = stat.gid
+
+  var myUid = options.uid !== undefined ?
+    options.uid : process.getuid && process.getuid()
+  var myGid = options.gid !== undefined ?
+    options.gid : process.getgid && process.getgid()
+
+  var u = parseInt('100', 8)
+  var g = parseInt('010', 8)
+  var o = parseInt('001', 8)
+  var ug = u | g
+
+  var ret = (mod & o) ||
+    (mod & g) && gid === myGid ||
+    (mod & u) && uid === myUid ||
+    (mod & ug) && myUid === 0
+
+  return ret
+}
+
+
+/***/ }),
+
+/***/ 827:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __importStar = (this && this.__importStar) || function (mod) {
+    if (mod && mod.__esModule) return mod;
+    var result = {};
+    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) result[k] = mod[k];
+    result["default"] = mod;
+    return result;
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const command_1 = __webpack_require__(215);
+const os = __importStar(__webpack_require__(87));
+const path = __importStar(__webpack_require__(622));
+/**
+ * The code to exit an action
+ */
+var ExitCode;
+(function (ExitCode) {
+    /**
+     * A code indicating that the action was successful
+     */
+    ExitCode[ExitCode["Success"] = 0] = "Success";
+    /**
+     * A code indicating that the action was a failure
+     */
+    ExitCode[ExitCode["Failure"] = 1] = "Failure";
+})(ExitCode = exports.ExitCode || (exports.ExitCode = {}));
+//-----------------------------------------------------------------------
+// Variables
+//-----------------------------------------------------------------------
+/**
+ * Sets env variable for this action and future actions in the job
+ * @param name the name of the variable to set
+ * @param val the value of the variable. Non-string values will be converted to a string via JSON.stringify
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function exportVariable(name, val) {
+    const convertedVal = command_1.toCommandValue(val);
+    process.env[name] = convertedVal;
+    command_1.issueCommand('set-env', { name }, convertedVal);
+}
+exports.exportVariable = exportVariable;
+/**
+ * Registers a secret which will get masked from logs
+ * @param secret value of the secret
+ */
+function setSecret(secret) {
+    command_1.issueCommand('add-mask', {}, secret);
+}
+exports.setSecret = setSecret;
+/**
+ * Prepends inputPath to the PATH (for this action and future actions)
+ * @param inputPath
+ */
+function addPath(inputPath) {
+    command_1.issueCommand('add-path', {}, inputPath);
+    process.env['PATH'] = `${inputPath}${path.delimiter}${process.env['PATH']}`;
+}
+exports.addPath = addPath;
+/**
+ * Gets the value of an input.  The value is also trimmed.
+ *
+ * @param     name     name of the input to get
+ * @param     options  optional. See InputOptions.
+ * @returns   string
+ */
+function getInput(name, options) {
+    const val = process.env[`INPUT_${name.replace(/ /g, '_').toUpperCase()}`] || '';
+    if (options && options.required && !val) {
+        throw new Error(`Input required and not supplied: ${name}`);
+    }
+    return val.trim();
+}
+exports.getInput = getInput;
+/**
+ * Sets the value of an output.
+ *
+ * @param     name     name of the output to set
+ * @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function setOutput(name, value) {
+    command_1.issueCommand('set-output', { name }, value);
+}
+exports.setOutput = setOutput;
+/**
+ * Enables or disables the echoing of commands into stdout for the rest of the step.
+ * Echoing is disabled by default if ACTIONS_STEP_DEBUG is not set.
+ *
+ */
+function setCommandEcho(enabled) {
+    command_1.issue('echo', enabled ? 'on' : 'off');
+}
+exports.setCommandEcho = setCommandEcho;
+//-----------------------------------------------------------------------
+// Results
+//-----------------------------------------------------------------------
+/**
+ * Sets the action status to failed.
+ * When the action exits it will be with an exit code of 1
+ * @param message add error issue message
+ */
+function setFailed(message) {
+    process.exitCode = ExitCode.Failure;
+    error(message);
+}
+exports.setFailed = setFailed;
+//-----------------------------------------------------------------------
+// Logging Commands
+//-----------------------------------------------------------------------
+/**
+ * Gets whether Actions Step Debug is on or not
+ */
+function isDebug() {
+    return process.env['RUNNER_DEBUG'] === '1';
+}
+exports.isDebug = isDebug;
+/**
+ * Writes debug message to user log
+ * @param message debug message
+ */
+function debug(message) {
+    command_1.issueCommand('debug', {}, message);
+}
+exports.debug = debug;
+/**
+ * Adds an error issue
+ * @param message error issue message. Errors will be converted to string via toString()
+ */
+function error(message) {
+    command_1.issue('error', message instanceof Error ? message.toString() : message);
+}
+exports.error = error;
+/**
+ * Adds an warning issue
+ * @param message warning issue message. Errors will be converted to string via toString()
+ */
+function warning(message) {
+    command_1.issue('warning', message instanceof Error ? message.toString() : message);
+}
+exports.warning = warning;
+/**
+ * Writes info to log with console.log.
+ * @param message info message
+ */
+function info(message) {
+    process.stdout.write(message + os.EOL);
+}
+exports.info = info;
+/**
+ * Begin an output group.
+ *
+ * Output until the next `groupEnd` will be foldable in this group
+ *
+ * @param name The name of the output group
+ */
+function startGroup(name) {
+    command_1.issue('group', name);
+}
+exports.startGroup = startGroup;
+/**
+ * End an output group.
+ */
+function endGroup() {
+    command_1.issue('endgroup');
+}
+exports.endGroup = endGroup;
+/**
+ * Wrap an asynchronous function call in a group.
+ *
+ * Returns the same type as the function itself.
+ *
+ * @param name The name of the group
+ * @param fn The function to wrap in the group
+ */
+function group(name, fn) {
+    return __awaiter(this, void 0, void 0, function* () {
+        startGroup(name);
+        let result;
+        try {
+            result = yield fn();
+        }
+        finally {
+            endGroup();
+        }
+        return result;
+    });
+}
+exports.group = group;
+//-----------------------------------------------------------------------
+// Wrapper action state
+//-----------------------------------------------------------------------
+/**
+ * Saves state for current action, the state can only be retrieved by this action's post job execution.
+ *
+ * @param     name     name of the state to store
+ * @param     value    value to store. Non-string values will be converted to a string via JSON.stringify
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function saveState(name, value) {
+    command_1.issueCommand('save-state', { name }, value);
+}
+exports.saveState = saveState;
+/**
+ * Gets the value of an state set by this action's main execution.
+ *
+ * @param     name     name of the state to get
+ * @returns   string
+ */
+function getState(name) {
+    return process.env[`STATE_${name}`] || '';
+}
+exports.getState = getState;
+//# sourceMappingURL=core.js.map
+
+/***/ }),
+
+/***/ 835:
+/***/ (function(module) {
+
+module.exports = require("url");
+
+/***/ }),
+
+/***/ 839:
 /***/ (function(module) {
 
 "use strict";
@@ -10619,7 +13831,159 @@ module.exports = opts => {
 
 /***/ }),
 
-/***/ 499:
+/***/ 848:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+
+const PropertiesReader = __webpack_require__(714);
+
+module.exports = function propertiesReaderFactory (sourceFile, encoding, appender) {
+
+   return new PropertiesReader(sourceFile, encoding, appender);
+
+};
+
+
+
+/***/ }),
+
+/***/ 854:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+module.exports = isexe
+isexe.sync = sync
+
+var fs = __webpack_require__(747)
+
+function checkPathExt (path, options) {
+  var pathext = options.pathExt !== undefined ?
+    options.pathExt : process.env.PATHEXT
+
+  if (!pathext) {
+    return true
+  }
+
+  pathext = pathext.split(';')
+  if (pathext.indexOf('') !== -1) {
+    return true
+  }
+  for (var i = 0; i < pathext.length; i++) {
+    var p = pathext[i].toLowerCase()
+    if (p && path.substr(-p.length).toLowerCase() === p) {
+      return true
+    }
+  }
+  return false
+}
+
+function checkStat (stat, path, options) {
+  if (!stat.isSymbolicLink() && !stat.isFile()) {
+    return false
+  }
+  return checkPathExt(path, options)
+}
+
+function isexe (path, options, cb) {
+  fs.stat(path, function (er, stat) {
+    cb(er, er ? false : checkStat(stat, path, options))
+  })
+}
+
+function sync (path, options) {
+  return checkStat(fs.statSync(path), path, options)
+}
+
+
+/***/ }),
+
+/***/ 865:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, XMLDummy, XMLNode,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  XMLNode = __webpack_require__(698);
+
+  NodeType = __webpack_require__(65);
+
+  module.exports = XMLDummy = (function(superClass) {
+    extend(XMLDummy, superClass);
+
+    function XMLDummy(parent) {
+      XMLDummy.__super__.constructor.call(this, parent);
+      this.type = NodeType.Dummy;
+    }
+
+    XMLDummy.prototype.clone = function() {
+      return Object.create(this);
+    };
+
+    XMLDummy.prototype.toString = function(options) {
+      return '';
+    };
+
+    return XMLDummy;
+
+  })(XMLNode);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 870:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+var wrappy = __webpack_require__(719)
+module.exports = wrappy(once)
+module.exports.strict = wrappy(onceStrict)
+
+once.proto = once(function () {
+  Object.defineProperty(Function.prototype, 'once', {
+    value: function () {
+      return once(this)
+    },
+    configurable: true
+  })
+
+  Object.defineProperty(Function.prototype, 'onceStrict', {
+    value: function () {
+      return onceStrict(this)
+    },
+    configurable: true
+  })
+})
+
+function once (fn) {
+  var f = function () {
+    if (f.called) return f.value
+    f.called = true
+    return f.value = fn.apply(this, arguments)
+  }
+  f.called = false
+  return f
+}
+
+function onceStrict (fn) {
+  var f = function () {
+    if (f.called)
+      throw new Error(f.onceError)
+    f.called = true
+    return f.value = fn.apply(this, arguments)
+  }
+  var name = fn.name || 'Function wrapped with `once`'
+  f.onceError = name + " shouldn't be called more than once"
+  f.called = false
+  return f
+}
+
+
+/***/ }),
+
+/***/ 877:
 /***/ (function(__unusedmodule, exports, __webpack_require__) {
 
 ;(function (sax) { // wrapper for non-node envs
@@ -12191,855 +15555,177 @@ module.exports = opts => {
 
 /***/ }),
 
-/***/ 503:
-/***/ (function(module) {
-
-"use strict";
-
-
-const isWin = process.platform === 'win32';
-
-function notFoundError(original, syscall) {
-    return Object.assign(new Error(`${syscall} ${original.command} ENOENT`), {
-        code: 'ENOENT',
-        errno: 'ENOENT',
-        syscall: `${syscall} ${original.command}`,
-        path: original.command,
-        spawnargs: original.args,
-    });
-}
-
-function hookChildProcess(cp, parsed) {
-    if (!isWin) {
-        return;
-    }
-
-    const originalEmit = cp.emit;
-
-    cp.emit = function (name, arg1) {
-        // If emitting "exit" event and exit code is 1, we need to check if
-        // the command exists and emit an "error" instead
-        // See https://github.com/IndigoUnited/node-cross-spawn/issues/16
-        if (name === 'exit') {
-            const err = verifyENOENT(arg1, parsed, 'spawn');
-
-            if (err) {
-                return originalEmit.call(cp, 'error', err);
-            }
-        }
-
-        return originalEmit.apply(cp, arguments); // eslint-disable-line prefer-rest-params
-    };
-}
-
-function verifyENOENT(status, parsed) {
-    if (isWin && status === 1 && !parsed.file) {
-        return notFoundError(parsed.original, 'spawn');
-    }
-
-    return null;
-}
-
-function verifyENOENTSync(status, parsed) {
-    if (isWin && status === 1 && !parsed.file) {
-        return notFoundError(parsed.original, 'spawnSync');
-    }
-
-    return null;
-}
-
-module.exports = {
-    hookChildProcess,
-    verifyENOENT,
-    verifyENOENTSync,
-    notFoundError,
-};
-
-
-/***/ }),
-
-/***/ 538:
+/***/ 881:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
-var once = __webpack_require__(646)
-var eos = __webpack_require__(206)
-var fs = __webpack_require__(747) // we only need fs to get the ReadStream and WriteStream prototypes
-
-var noop = function () {}
-var ancient = /^v?\.0/.test(process.version)
-
-var isFn = function (fn) {
-  return typeof fn === 'function'
+var fs = __webpack_require__(747)
+var core
+if (process.platform === 'win32' || global.TESTING_WINDOWS) {
+  core = __webpack_require__(854)
+} else {
+  core = __webpack_require__(821)
 }
 
-var isFS = function (stream) {
-  if (!ancient) return false // newer node version do not need to care about fs is a special way
-  if (!fs) return false // browser
-  return (stream instanceof (fs.ReadStream || noop) || stream instanceof (fs.WriteStream || noop)) && isFn(stream.close)
-}
+module.exports = isexe
+isexe.sync = sync
 
-var isRequest = function (stream) {
-  return stream.setHeader && isFn(stream.abort)
-}
-
-var destroyer = function (stream, reading, writing, callback) {
-  callback = once(callback)
-
-  var closed = false
-  stream.on('close', function () {
-    closed = true
-  })
-
-  eos(stream, {readable: reading, writable: writing}, function (err) {
-    if (err) return callback(err)
-    closed = true
-    callback()
-  })
-
-  var destroyed = false
-  return function (err) {
-    if (closed) return
-    if (destroyed) return
-    destroyed = true
-
-    if (isFS(stream)) return stream.close(noop) // use close for fs streams to avoid fd leaks
-    if (isRequest(stream)) return stream.abort() // request.destroy just do .end - .abort is what we want
-
-    if (isFn(stream.destroy)) return stream.destroy()
-
-    callback(err || new Error('stream was destroyed'))
-  }
-}
-
-var call = function (fn) {
-  fn()
-}
-
-var pipe = function (from, to) {
-  return from.pipe(to)
-}
-
-var pump = function () {
-  var streams = Array.prototype.slice.call(arguments)
-  var callback = isFn(streams[streams.length - 1] || noop) && streams.pop() || noop
-
-  if (Array.isArray(streams[0])) streams = streams[0]
-  if (streams.length < 2) throw new Error('pump requires two streams per minimum')
-
-  var error
-  var destroys = streams.map(function (stream, i) {
-    var reading = i < streams.length - 1
-    var writing = i > 0
-    return destroyer(stream, reading, writing, function (err) {
-      if (!error) error = err
-      if (err) destroys.forEach(call)
-      if (reading) return
-      destroys.forEach(call)
-      callback(error)
-    })
-  })
-
-  return streams.reduce(pipe)
-}
-
-module.exports = pump
-
-
-/***/ }),
-
-/***/ 563:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-module.exports = which
-which.sync = whichSync
-
-var isWindows = process.platform === 'win32' ||
-    process.env.OSTYPE === 'cygwin' ||
-    process.env.OSTYPE === 'msys'
-
-var path = __webpack_require__(622)
-var COLON = isWindows ? ';' : ':'
-var isexe = __webpack_require__(130)
-
-function getNotFoundError (cmd) {
-  var er = new Error('not found: ' + cmd)
-  er.code = 'ENOENT'
-
-  return er
-}
-
-function getPathInfo (cmd, opt) {
-  var colon = opt.colon || COLON
-  var pathEnv = opt.path || process.env.PATH || ''
-  var pathExt = ['']
-
-  pathEnv = pathEnv.split(colon)
-
-  var pathExtExe = ''
-  if (isWindows) {
-    pathEnv.unshift(process.cwd())
-    pathExtExe = (opt.pathExt || process.env.PATHEXT || '.EXE;.CMD;.BAT;.COM')
-    pathExt = pathExtExe.split(colon)
-
-
-    // Always test the cmd itself first.  isexe will check to make sure
-    // it's found in the pathExt set.
-    if (cmd.indexOf('.') !== -1 && pathExt[0] !== '')
-      pathExt.unshift('')
+function isexe (path, options, cb) {
+  if (typeof options === 'function') {
+    cb = options
+    options = {}
   }
 
-  // If it has a slash, then we don't bother searching the pathenv.
-  // just check the file itself, and that's it.
-  if (cmd.match(/\//) || isWindows && cmd.match(/\\/))
-    pathEnv = ['']
-
-  return {
-    env: pathEnv,
-    ext: pathExt,
-    extExe: pathExtExe
-  }
-}
-
-function which (cmd, opt, cb) {
-  if (typeof opt === 'function') {
-    cb = opt
-    opt = {}
-  }
-
-  var info = getPathInfo(cmd, opt)
-  var pathEnv = info.env
-  var pathExt = info.ext
-  var pathExtExe = info.extExe
-  var found = []
-
-  ;(function F (i, l) {
-    if (i === l) {
-      if (opt.all && found.length)
-        return cb(null, found)
-      else
-        return cb(getNotFoundError(cmd))
+  if (!cb) {
+    if (typeof Promise !== 'function') {
+      throw new TypeError('callback not provided')
     }
 
-    var pathPart = pathEnv[i]
-    if (pathPart.charAt(0) === '"' && pathPart.slice(-1) === '"')
-      pathPart = pathPart.slice(1, -1)
-
-    var p = path.join(pathPart, cmd)
-    if (!pathPart && (/^\.[\\\/]/).test(cmd)) {
-      p = cmd.slice(0, 2) + p
-    }
-    ;(function E (ii, ll) {
-      if (ii === ll) return F(i + 1, l)
-      var ext = pathExt[ii]
-      isexe(p + ext, { pathExt: pathExtExe }, function (er, is) {
-        if (!er && is) {
-          if (opt.all)
-            found.push(p + ext)
-          else
-            return cb(null, p + ext)
-        }
-        return E(ii + 1, ll)
-      })
-    })(0, pathExt.length)
-  })(0, pathEnv.length)
-}
-
-function whichSync (cmd, opt) {
-  opt = opt || {}
-
-  var info = getPathInfo(cmd, opt)
-  var pathEnv = info.env
-  var pathExt = info.ext
-  var pathExtExe = info.extExe
-  var found = []
-
-  for (var i = 0, l = pathEnv.length; i < l; i ++) {
-    var pathPart = pathEnv[i]
-    if (pathPart.charAt(0) === '"' && pathPart.slice(-1) === '"')
-      pathPart = pathPart.slice(1, -1)
-
-    var p = path.join(pathPart, cmd)
-    if (!pathPart && /^\.[\\\/]/.test(cmd)) {
-      p = cmd.slice(0, 2) + p
-    }
-    for (var j = 0, ll = pathExt.length; j < ll; j ++) {
-      var cur = p + pathExt[j]
-      var is
-      try {
-        is = isexe.sync(cur, { pathExt: pathExtExe })
-        if (is) {
-          if (opt.all)
-            found.push(cur)
-          else
-            return cur
-        }
-      } catch (ex) {}
-    }
-  }
-
-  if (opt.all && found.length)
-    return found
-
-  if (opt.nothrow)
-    return null
-
-  throw getNotFoundError(cmd)
-}
-
-
-/***/ }),
-
-/***/ 581:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, WriterState, XMLCData, XMLComment, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDeclaration, XMLDocType, XMLDummy, XMLElement, XMLProcessingInstruction, XMLRaw, XMLText, XMLWriterBase, assign,
-    hasProp = {}.hasOwnProperty;
-
-  assign = __webpack_require__(774).assign;
-
-  NodeType = __webpack_require__(700);
-
-  XMLDeclaration = __webpack_require__(604);
-
-  XMLDocType = __webpack_require__(102);
-
-  XMLCData = __webpack_require__(151);
-
-  XMLComment = __webpack_require__(250);
-
-  XMLElement = __webpack_require__(121);
-
-  XMLRaw = __webpack_require__(78);
-
-  XMLText = __webpack_require__(997);
-
-  XMLProcessingInstruction = __webpack_require__(193);
-
-  XMLDummy = __webpack_require__(319);
-
-  XMLDTDAttList = __webpack_require__(60);
-
-  XMLDTDElement = __webpack_require__(188);
-
-  XMLDTDEntity = __webpack_require__(777);
-
-  XMLDTDNotation = __webpack_require__(295);
-
-  WriterState = __webpack_require__(46);
-
-  module.exports = XMLWriterBase = (function() {
-    function XMLWriterBase(options) {
-      var key, ref, value;
-      options || (options = {});
-      this.options = options;
-      ref = options.writer || {};
-      for (key in ref) {
-        if (!hasProp.call(ref, key)) continue;
-        value = ref[key];
-        this["_" + key] = this[key];
-        this[key] = value;
-      }
-    }
-
-    XMLWriterBase.prototype.filterOptions = function(options) {
-      var filteredOptions, ref, ref1, ref2, ref3, ref4, ref5, ref6;
-      options || (options = {});
-      options = assign({}, this.options, options);
-      filteredOptions = {
-        writer: this
-      };
-      filteredOptions.pretty = options.pretty || false;
-      filteredOptions.allowEmpty = options.allowEmpty || false;
-      filteredOptions.indent = (ref = options.indent) != null ? ref : '  ';
-      filteredOptions.newline = (ref1 = options.newline) != null ? ref1 : '\n';
-      filteredOptions.offset = (ref2 = options.offset) != null ? ref2 : 0;
-      filteredOptions.dontPrettyTextNodes = (ref3 = (ref4 = options.dontPrettyTextNodes) != null ? ref4 : options.dontprettytextnodes) != null ? ref3 : 0;
-      filteredOptions.spaceBeforeSlash = (ref5 = (ref6 = options.spaceBeforeSlash) != null ? ref6 : options.spacebeforeslash) != null ? ref5 : '';
-      if (filteredOptions.spaceBeforeSlash === true) {
-        filteredOptions.spaceBeforeSlash = ' ';
-      }
-      filteredOptions.suppressPrettyCount = 0;
-      filteredOptions.user = {};
-      filteredOptions.state = WriterState.None;
-      return filteredOptions;
-    };
-
-    XMLWriterBase.prototype.indent = function(node, options, level) {
-      var indentLevel;
-      if (!options.pretty || options.suppressPrettyCount) {
-        return '';
-      } else if (options.pretty) {
-        indentLevel = (level || 0) + options.offset + 1;
-        if (indentLevel > 0) {
-          return new Array(indentLevel).join(options.indent);
-        }
-      }
-      return '';
-    };
-
-    XMLWriterBase.prototype.endline = function(node, options, level) {
-      if (!options.pretty || options.suppressPrettyCount) {
-        return '';
-      } else {
-        return options.newline;
-      }
-    };
-
-    XMLWriterBase.prototype.attribute = function(att, options, level) {
-      var r;
-      this.openAttribute(att, options, level);
-      r = ' ' + att.name + '="' + att.value + '"';
-      this.closeAttribute(att, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.cdata = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level) + '<![CDATA[';
-      options.state = WriterState.InsideTag;
-      r += node.value;
-      options.state = WriterState.CloseTag;
-      r += ']]>' + this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.comment = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level) + '<!-- ';
-      options.state = WriterState.InsideTag;
-      r += node.value;
-      options.state = WriterState.CloseTag;
-      r += ' -->' + this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.declaration = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level) + '<?xml';
-      options.state = WriterState.InsideTag;
-      r += ' version="' + node.version + '"';
-      if (node.encoding != null) {
-        r += ' encoding="' + node.encoding + '"';
-      }
-      if (node.standalone != null) {
-        r += ' standalone="' + node.standalone + '"';
-      }
-      options.state = WriterState.CloseTag;
-      r += options.spaceBeforeSlash + '?>';
-      r += this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.docType = function(node, options, level) {
-      var child, i, len, r, ref;
-      level || (level = 0);
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level);
-      r += '<!DOCTYPE ' + node.root().name;
-      if (node.pubID && node.sysID) {
-        r += ' PUBLIC "' + node.pubID + '" "' + node.sysID + '"';
-      } else if (node.sysID) {
-        r += ' SYSTEM "' + node.sysID + '"';
-      }
-      if (node.children.length > 0) {
-        r += ' [';
-        r += this.endline(node, options, level);
-        options.state = WriterState.InsideTag;
-        ref = node.children;
-        for (i = 0, len = ref.length; i < len; i++) {
-          child = ref[i];
-          r += this.writeChildNode(child, options, level + 1);
-        }
-        options.state = WriterState.CloseTag;
-        r += ']';
-      }
-      options.state = WriterState.CloseTag;
-      r += options.spaceBeforeSlash + '>';
-      r += this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.element = function(node, options, level) {
-      var att, child, childNodeCount, firstChildNode, i, j, len, len1, name, prettySuppressed, r, ref, ref1, ref2;
-      level || (level = 0);
-      prettySuppressed = false;
-      r = '';
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r += this.indent(node, options, level) + '<' + node.name;
-      ref = node.attribs;
-      for (name in ref) {
-        if (!hasProp.call(ref, name)) continue;
-        att = ref[name];
-        r += this.attribute(att, options, level);
-      }
-      childNodeCount = node.children.length;
-      firstChildNode = childNodeCount === 0 ? null : node.children[0];
-      if (childNodeCount === 0 || node.children.every(function(e) {
-        return (e.type === NodeType.Text || e.type === NodeType.Raw) && e.value === '';
-      })) {
-        if (options.allowEmpty) {
-          r += '>';
-          options.state = WriterState.CloseTag;
-          r += '</' + node.name + '>' + this.endline(node, options, level);
+    return new Promise(function (resolve, reject) {
+      isexe(path, options || {}, function (er, is) {
+        if (er) {
+          reject(er)
         } else {
-          options.state = WriterState.CloseTag;
-          r += options.spaceBeforeSlash + '/>' + this.endline(node, options, level);
+          resolve(is)
         }
-      } else if (options.pretty && childNodeCount === 1 && (firstChildNode.type === NodeType.Text || firstChildNode.type === NodeType.Raw) && (firstChildNode.value != null)) {
-        r += '>';
-        options.state = WriterState.InsideTag;
-        options.suppressPrettyCount++;
-        prettySuppressed = true;
-        r += this.writeChildNode(firstChildNode, options, level + 1);
-        options.suppressPrettyCount--;
-        prettySuppressed = false;
-        options.state = WriterState.CloseTag;
-        r += '</' + node.name + '>' + this.endline(node, options, level);
-      } else {
-        if (options.dontPrettyTextNodes) {
-          ref1 = node.children;
-          for (i = 0, len = ref1.length; i < len; i++) {
-            child = ref1[i];
-            if ((child.type === NodeType.Text || child.type === NodeType.Raw) && (child.value != null)) {
-              options.suppressPrettyCount++;
-              prettySuppressed = true;
-              break;
-            }
-          }
-        }
-        r += '>' + this.endline(node, options, level);
-        options.state = WriterState.InsideTag;
-        ref2 = node.children;
-        for (j = 0, len1 = ref2.length; j < len1; j++) {
-          child = ref2[j];
-          r += this.writeChildNode(child, options, level + 1);
-        }
-        options.state = WriterState.CloseTag;
-        r += this.indent(node, options, level) + '</' + node.name + '>';
-        if (prettySuppressed) {
-          options.suppressPrettyCount--;
-        }
-        r += this.endline(node, options, level);
-        options.state = WriterState.None;
+      })
+    })
+  }
+
+  core(path, options || {}, function (er, is) {
+    // ignore EACCES because that just means we aren't allowed to run it
+    if (er) {
+      if (er.code === 'EACCES' || options && options.ignoreErrors) {
+        er = null
+        is = false
       }
-      this.closeNode(node, options, level);
-      return r;
-    };
+    }
+    cb(er, is)
+  })
+}
 
-    XMLWriterBase.prototype.writeChildNode = function(node, options, level) {
-      switch (node.type) {
-        case NodeType.CData:
-          return this.cdata(node, options, level);
-        case NodeType.Comment:
-          return this.comment(node, options, level);
-        case NodeType.Element:
-          return this.element(node, options, level);
-        case NodeType.Raw:
-          return this.raw(node, options, level);
-        case NodeType.Text:
-          return this.text(node, options, level);
-        case NodeType.ProcessingInstruction:
-          return this.processingInstruction(node, options, level);
-        case NodeType.Dummy:
-          return '';
-        case NodeType.Declaration:
-          return this.declaration(node, options, level);
-        case NodeType.DocType:
-          return this.docType(node, options, level);
-        case NodeType.AttributeDeclaration:
-          return this.dtdAttList(node, options, level);
-        case NodeType.ElementDeclaration:
-          return this.dtdElement(node, options, level);
-        case NodeType.EntityDeclaration:
-          return this.dtdEntity(node, options, level);
-        case NodeType.NotationDeclaration:
-          return this.dtdNotation(node, options, level);
-        default:
-          throw new Error("Unknown XML node type: " + node.constructor.name);
-      }
-    };
-
-    XMLWriterBase.prototype.processingInstruction = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level) + '<?';
-      options.state = WriterState.InsideTag;
-      r += node.target;
-      if (node.value) {
-        r += ' ' + node.value;
-      }
-      options.state = WriterState.CloseTag;
-      r += options.spaceBeforeSlash + '?>';
-      r += this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.raw = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level);
-      options.state = WriterState.InsideTag;
-      r += node.value;
-      options.state = WriterState.CloseTag;
-      r += this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.text = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level);
-      options.state = WriterState.InsideTag;
-      r += node.value;
-      options.state = WriterState.CloseTag;
-      r += this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.dtdAttList = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level) + '<!ATTLIST';
-      options.state = WriterState.InsideTag;
-      r += ' ' + node.elementName + ' ' + node.attributeName + ' ' + node.attributeType;
-      if (node.defaultValueType !== '#DEFAULT') {
-        r += ' ' + node.defaultValueType;
-      }
-      if (node.defaultValue) {
-        r += ' "' + node.defaultValue + '"';
-      }
-      options.state = WriterState.CloseTag;
-      r += options.spaceBeforeSlash + '>' + this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.dtdElement = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level) + '<!ELEMENT';
-      options.state = WriterState.InsideTag;
-      r += ' ' + node.name + ' ' + node.value;
-      options.state = WriterState.CloseTag;
-      r += options.spaceBeforeSlash + '>' + this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.dtdEntity = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level) + '<!ENTITY';
-      options.state = WriterState.InsideTag;
-      if (node.pe) {
-        r += ' %';
-      }
-      r += ' ' + node.name;
-      if (node.value) {
-        r += ' "' + node.value + '"';
-      } else {
-        if (node.pubID && node.sysID) {
-          r += ' PUBLIC "' + node.pubID + '" "' + node.sysID + '"';
-        } else if (node.sysID) {
-          r += ' SYSTEM "' + node.sysID + '"';
-        }
-        if (node.nData) {
-          r += ' NDATA ' + node.nData;
-        }
-      }
-      options.state = WriterState.CloseTag;
-      r += options.spaceBeforeSlash + '>' + this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.dtdNotation = function(node, options, level) {
-      var r;
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      r = this.indent(node, options, level) + '<!NOTATION';
-      options.state = WriterState.InsideTag;
-      r += ' ' + node.name;
-      if (node.pubID && node.sysID) {
-        r += ' PUBLIC "' + node.pubID + '" "' + node.sysID + '"';
-      } else if (node.pubID) {
-        r += ' PUBLIC "' + node.pubID + '"';
-      } else if (node.sysID) {
-        r += ' SYSTEM "' + node.sysID + '"';
-      }
-      options.state = WriterState.CloseTag;
-      r += options.spaceBeforeSlash + '>' + this.endline(node, options, level);
-      options.state = WriterState.None;
-      this.closeNode(node, options, level);
-      return r;
-    };
-
-    XMLWriterBase.prototype.openNode = function(node, options, level) {};
-
-    XMLWriterBase.prototype.closeNode = function(node, options, level) {};
-
-    XMLWriterBase.prototype.openAttribute = function(att, options, level) {};
-
-    XMLWriterBase.prototype.closeAttribute = function(att, options, level) {};
-
-    return XMLWriterBase;
-
-  })();
-
-}).call(this);
+function sync (path, options) {
+  // my kingdom for a filtered catch
+  try {
+    return core.sync(path, options || {})
+  } catch (er) {
+    if (options && options.ignoreErrors || er.code === 'EACCES') {
+      return false
+    } else {
+      throw er
+    }
+  }
+}
 
 
 /***/ }),
 
-/***/ 588:
+/***/ 883:
 /***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-const {PassThrough} = __webpack_require__(413);
-
-module.exports = options => {
-	options = Object.assign({}, options);
-
-	const {array} = options;
-	let {encoding} = options;
-	const buffer = encoding === 'buffer';
-	let objectMode = false;
-
-	if (array) {
-		objectMode = !(encoding || buffer);
-	} else {
-		encoding = encoding || 'utf8';
-	}
-
-	if (buffer) {
-		encoding = null;
-	}
-
-	let len = 0;
-	const ret = [];
-	const stream = new PassThrough({objectMode});
-
-	if (encoding) {
-		stream.setEncoding(encoding);
-	}
-
-	stream.on('data', chunk => {
-		ret.push(chunk);
-
-		if (objectMode) {
-			len = ret.length;
-		} else {
-			len += chunk.length;
-		}
-	});
-
-	stream.getBufferedValue = () => {
-		if (array) {
-			return ret;
-		}
-
-		return buffer ? Buffer.concat(ret, len) : ret.join('');
-	};
-
-	stream.getBufferedLength = () => len;
-
-	return stream;
-};
-
-
-/***/ }),
-
-/***/ 589:
-/***/ (function(module) {
 
 // Generated by CoffeeScript 1.12.7
 (function() {
-  var XMLNamedNodeMap;
+  var NodeType, XMLAttribute, XMLNode;
 
-  module.exports = XMLNamedNodeMap = (function() {
-    function XMLNamedNodeMap(nodes) {
-      this.nodes = nodes;
+  NodeType = __webpack_require__(65);
+
+  XMLNode = __webpack_require__(698);
+
+  module.exports = XMLAttribute = (function() {
+    function XMLAttribute(parent, name, value) {
+      this.parent = parent;
+      if (this.parent) {
+        this.options = this.parent.options;
+        this.stringify = this.parent.stringify;
+      }
+      if (name == null) {
+        throw new Error("Missing attribute name. " + this.debugInfo(name));
+      }
+      this.name = this.stringify.name(name);
+      this.value = this.stringify.attValue(value);
+      this.type = NodeType.Attribute;
+      this.isId = false;
+      this.schemaTypeInfo = null;
     }
 
-    Object.defineProperty(XMLNamedNodeMap.prototype, 'length', {
+    Object.defineProperty(XMLAttribute.prototype, 'nodeType', {
       get: function() {
-        return Object.keys(this.nodes).length || 0;
+        return this.type;
       }
     });
 
-    XMLNamedNodeMap.prototype.clone = function() {
-      return this.nodes = null;
+    Object.defineProperty(XMLAttribute.prototype, 'ownerElement', {
+      get: function() {
+        return this.parent;
+      }
+    });
+
+    Object.defineProperty(XMLAttribute.prototype, 'textContent', {
+      get: function() {
+        return this.value;
+      },
+      set: function(value) {
+        return this.value = value || '';
+      }
+    });
+
+    Object.defineProperty(XMLAttribute.prototype, 'namespaceURI', {
+      get: function() {
+        return '';
+      }
+    });
+
+    Object.defineProperty(XMLAttribute.prototype, 'prefix', {
+      get: function() {
+        return '';
+      }
+    });
+
+    Object.defineProperty(XMLAttribute.prototype, 'localName', {
+      get: function() {
+        return this.name;
+      }
+    });
+
+    Object.defineProperty(XMLAttribute.prototype, 'specified', {
+      get: function() {
+        return true;
+      }
+    });
+
+    XMLAttribute.prototype.clone = function() {
+      return Object.create(this);
     };
 
-    XMLNamedNodeMap.prototype.getNamedItem = function(name) {
-      return this.nodes[name];
+    XMLAttribute.prototype.toString = function(options) {
+      return this.options.writer.attribute(this, this.options.writer.filterOptions(options));
     };
 
-    XMLNamedNodeMap.prototype.setNamedItem = function(node) {
-      var oldNode;
-      oldNode = this.nodes[node.nodeName];
-      this.nodes[node.nodeName] = node;
-      return oldNode || null;
+    XMLAttribute.prototype.debugInfo = function(name) {
+      name = name || this.name;
+      if (name == null) {
+        return "parent: <" + this.parent.name + ">";
+      } else {
+        return "attribute: {" + name + "}, parent: <" + this.parent.name + ">";
+      }
     };
 
-    XMLNamedNodeMap.prototype.removeNamedItem = function(name) {
-      var oldNode;
-      oldNode = this.nodes[name];
-      delete this.nodes[name];
-      return oldNode || null;
+    XMLAttribute.prototype.isEqualNode = function(node) {
+      if (node.namespaceURI !== this.namespaceURI) {
+        return false;
+      }
+      if (node.prefix !== this.prefix) {
+        return false;
+      }
+      if (node.localName !== this.localName) {
+        return false;
+      }
+      if (node.value !== this.value) {
+        return false;
+      }
+      return true;
     };
 
-    XMLNamedNodeMap.prototype.item = function(index) {
-      return this.nodes[Object.keys(this.nodes)[index]] || null;
-    };
-
-    XMLNamedNodeMap.prototype.getNamedItemNS = function(namespaceURI, localName) {
-      throw new Error("This DOM method is not implemented.");
-    };
-
-    XMLNamedNodeMap.prototype.setNamedItemNS = function(node) {
-      throw new Error("This DOM method is not implemented.");
-    };
-
-    XMLNamedNodeMap.prototype.removeNamedItemNS = function(namespaceURI, localName) {
-      throw new Error("This DOM method is not implemented.");
-    };
-
-    return XMLNamedNodeMap;
+    return XMLAttribute;
 
   })();
 
@@ -13048,7 +15734,91 @@ module.exports = options => {
 
 /***/ }),
 
-/***/ 594:
+/***/ 885:
+/***/ (function(module) {
+
+"use strict";
+
+module.exports = /^#!.*/;
+
+
+/***/ }),
+
+/***/ 897:
+/***/ (function(__unusedmodule, __unusedexports, __webpack_require__) {
+
+const core = __webpack_require__(827);
+const github = __webpack_require__(148);
+var propertiesReader = __webpack_require__(848);
+const dependencies = __webpack_require__(740);
+const sfdx = __webpack_require__(265);
+
+try {
+  
+  core.debug("=== index.js ===");
+  const payload = JSON.stringify(github.context.payload, undefined, 2)
+  core.debug(`The event payload: ${payload}`);
+  
+  //Variables declaration
+  var cert = {};
+  var login = {};
+  var deploy = {};
+  var propertiesPath = core.getInput('properties_file');
+  var properties = {};
+
+  //Load properties
+  if(propertiesPath){
+    core.info("Loading properties file: " + propertiesPath);
+    properties = propertiesReader(propertiesPath);
+  }else{
+    //Simulate load properties
+    properties.get = function(){return null};
+    core.info("There is not properites file to load.");
+  }
+
+  //Install dependecies  
+  dependencies.install();
+  
+  //Load cert params
+  cert.certificatePath = core.getInput('certificate_path');
+  cert.decryptionKey = core.getInput('decryption_key');
+  cert.decryptionIV = core.getInput('decryption_iv');
+
+  //Load login params
+  login.clientId = core.getInput('client_id');
+  login.orgType = core.getInput('type');
+  login.username = core.getInput('username');
+  
+  //Load deploy params
+  deploy.defaultSourcePath = core.getInput('default_source_path');
+  deploy.defaultTestClass = core.getInput('default_test_class');
+  deploy.manifestToDeploy = core.getInput('manifest_path');
+  deploy.destructivePath = core.getInput('destructive_path');
+  deploy.dataFactory = core.getInput('data_factory');
+  deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
+  deploy.testlevel = core.getInput('deploy_testlevel');
+  
+  //Login to Org
+  sfdx.login(cert,login);
+
+  //Deply/Checkonly to Org
+  sfdx.deploy(deploy);
+  
+  //Destructive deploy
+  sfdx.destructiveDeploy(deploy);
+
+  //Executes data factory script
+  sfdx.dataFactory(deploy);
+  
+} catch (error) {
+  core.setFailed(error.message);
+}
+
+
+
+/***/ }),
+
+/***/ 898:
 /***/ (function(__unusedmodule, exports, __webpack_require__) {
 
 "use strict";
@@ -13058,448 +15828,651 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
 
-var isPlainObject = _interopDefault(__webpack_require__(825));
-var universalUserAgent = __webpack_require__(922);
+var osName = _interopDefault(__webpack_require__(50));
 
-function lowercaseKeys(object) {
-  if (!object) {
-    return {};
-  }
-
-  return Object.keys(object).reduce((newObj, key) => {
-    newObj[key.toLowerCase()] = object[key];
-    return newObj;
-  }, {});
-}
-
-function mergeDeep(defaults, options) {
-  const result = Object.assign({}, defaults);
-  Object.keys(options).forEach(key => {
-    if (isPlainObject(options[key])) {
-      if (!(key in defaults)) Object.assign(result, {
-        [key]: options[key]
-      });else result[key] = mergeDeep(defaults[key], options[key]);
-    } else {
-      Object.assign(result, {
-        [key]: options[key]
-      });
-    }
-  });
-  return result;
-}
-
-function merge(defaults, route, options) {
-  if (typeof route === "string") {
-    let [method, url] = route.split(" ");
-    options = Object.assign(url ? {
-      method,
-      url
-    } : {
-      url: method
-    }, options);
-  } else {
-    options = Object.assign({}, route);
-  } // lowercase header names before merging with defaults to avoid duplicates
-
-
-  options.headers = lowercaseKeys(options.headers);
-  const mergedOptions = mergeDeep(defaults || {}, options); // mediaType.previews arrays are merged, instead of overwritten
-
-  if (defaults && defaults.mediaType.previews.length) {
-    mergedOptions.mediaType.previews = defaults.mediaType.previews.filter(preview => !mergedOptions.mediaType.previews.includes(preview)).concat(mergedOptions.mediaType.previews);
-  }
-
-  mergedOptions.mediaType.previews = mergedOptions.mediaType.previews.map(preview => preview.replace(/-preview/, ""));
-  return mergedOptions;
-}
-
-function addQueryParameters(url, parameters) {
-  const separator = /\?/.test(url) ? "&" : "?";
-  const names = Object.keys(parameters);
-
-  if (names.length === 0) {
-    return url;
-  }
-
-  return url + separator + names.map(name => {
-    if (name === "q") {
-      return "q=" + parameters.q.split("+").map(encodeURIComponent).join("+");
+function getUserAgent() {
+  try {
+    return `Node.js/${process.version.substr(1)} (${osName()}; ${process.arch})`;
+  } catch (error) {
+    if (/wmic os get Caption/.test(error.message)) {
+      return "Windows <version undetectable>";
     }
 
-    return `${name}=${encodeURIComponent(parameters[name])}`;
-  }).join("&");
-}
-
-const urlVariableRegex = /\{[^}]+\}/g;
-
-function removeNonChars(variableName) {
-  return variableName.replace(/^\W+|\W+$/g, "").split(/,/);
-}
-
-function extractUrlVariableNames(url) {
-  const matches = url.match(urlVariableRegex);
-
-  if (!matches) {
-    return [];
-  }
-
-  return matches.map(removeNonChars).reduce((a, b) => a.concat(b), []);
-}
-
-function omit(object, keysToOmit) {
-  return Object.keys(object).filter(option => !keysToOmit.includes(option)).reduce((obj, key) => {
-    obj[key] = object[key];
-    return obj;
-  }, {});
-}
-
-// Based on https://github.com/bramstein/url-template, licensed under BSD
-// TODO: create separate package.
-//
-// Copyright (c) 2012-2014, Bram Stein
-// All rights reserved.
-// Redistribution and use in source and binary forms, with or without
-// modification, are permitted provided that the following conditions
-// are met:
-//  1. Redistributions of source code must retain the above copyright
-//     notice, this list of conditions and the following disclaimer.
-//  2. Redistributions in binary form must reproduce the above copyright
-//     notice, this list of conditions and the following disclaimer in the
-//     documentation and/or other materials provided with the distribution.
-//  3. The name of the author may not be used to endorse or promote products
-//     derived from this software without specific prior written permission.
-// THIS SOFTWARE IS PROVIDED BY THE AUTHOR "AS IS" AND ANY EXPRESS OR IMPLIED
-// WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
-// EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
-// INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-// BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
-// OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
-// NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
-// EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-/* istanbul ignore file */
-function encodeReserved(str) {
-  return str.split(/(%[0-9A-Fa-f]{2})/g).map(function (part) {
-    if (!/%[0-9A-Fa-f]/.test(part)) {
-      part = encodeURI(part).replace(/%5B/g, "[").replace(/%5D/g, "]");
-    }
-
-    return part;
-  }).join("");
-}
-
-function encodeUnreserved(str) {
-  return encodeURIComponent(str).replace(/[!'()*]/g, function (c) {
-    return "%" + c.charCodeAt(0).toString(16).toUpperCase();
-  });
-}
-
-function encodeValue(operator, value, key) {
-  value = operator === "+" || operator === "#" ? encodeReserved(value) : encodeUnreserved(value);
-
-  if (key) {
-    return encodeUnreserved(key) + "=" + value;
-  } else {
-    return value;
+    return "<environment undetectable>";
   }
 }
 
-function isDefined(value) {
-  return value !== undefined && value !== null;
-}
-
-function isKeyOperator(operator) {
-  return operator === ";" || operator === "&" || operator === "?";
-}
-
-function getValues(context, operator, key, modifier) {
-  var value = context[key],
-      result = [];
-
-  if (isDefined(value) && value !== "") {
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      value = value.toString();
-
-      if (modifier && modifier !== "*") {
-        value = value.substring(0, parseInt(modifier, 10));
-      }
-
-      result.push(encodeValue(operator, value, isKeyOperator(operator) ? key : ""));
-    } else {
-      if (modifier === "*") {
-        if (Array.isArray(value)) {
-          value.filter(isDefined).forEach(function (value) {
-            result.push(encodeValue(operator, value, isKeyOperator(operator) ? key : ""));
-          });
-        } else {
-          Object.keys(value).forEach(function (k) {
-            if (isDefined(value[k])) {
-              result.push(encodeValue(operator, value[k], k));
-            }
-          });
-        }
-      } else {
-        const tmp = [];
-
-        if (Array.isArray(value)) {
-          value.filter(isDefined).forEach(function (value) {
-            tmp.push(encodeValue(operator, value));
-          });
-        } else {
-          Object.keys(value).forEach(function (k) {
-            if (isDefined(value[k])) {
-              tmp.push(encodeUnreserved(k));
-              tmp.push(encodeValue(operator, value[k].toString()));
-            }
-          });
-        }
-
-        if (isKeyOperator(operator)) {
-          result.push(encodeUnreserved(key) + "=" + tmp.join(","));
-        } else if (tmp.length !== 0) {
-          result.push(tmp.join(","));
-        }
-      }
-    }
-  } else {
-    if (operator === ";") {
-      if (isDefined(value)) {
-        result.push(encodeUnreserved(key));
-      }
-    } else if (value === "" && (operator === "&" || operator === "?")) {
-      result.push(encodeUnreserved(key) + "=");
-    } else if (value === "") {
-      result.push("");
-    }
-  }
-
-  return result;
-}
-
-function parseUrl(template) {
-  return {
-    expand: expand.bind(null, template)
-  };
-}
-
-function expand(template, context) {
-  var operators = ["+", "#", ".", "/", ";", "?", "&"];
-  return template.replace(/\{([^\{\}]+)\}|([^\{\}]+)/g, function (_, expression, literal) {
-    if (expression) {
-      let operator = "";
-      const values = [];
-
-      if (operators.indexOf(expression.charAt(0)) !== -1) {
-        operator = expression.charAt(0);
-        expression = expression.substr(1);
-      }
-
-      expression.split(/,/g).forEach(function (variable) {
-        var tmp = /([^:\*]*)(?::(\d+)|(\*))?/.exec(variable);
-        values.push(getValues(context, operator, tmp[1], tmp[2] || tmp[3]));
-      });
-
-      if (operator && operator !== "+") {
-        var separator = ",";
-
-        if (operator === "?") {
-          separator = "&";
-        } else if (operator !== "#") {
-          separator = operator;
-        }
-
-        return (values.length !== 0 ? operator : "") + values.join(separator);
-      } else {
-        return values.join(",");
-      }
-    } else {
-      return encodeReserved(literal);
-    }
-  });
-}
-
-function parse(options) {
-  // https://fetch.spec.whatwg.org/#methods
-  let method = options.method.toUpperCase(); // replace :varname with {varname} to make it RFC 6570 compatible
-
-  let url = (options.url || "/").replace(/:([a-z]\w+)/g, "{+$1}");
-  let headers = Object.assign({}, options.headers);
-  let body;
-  let parameters = omit(options, ["method", "baseUrl", "url", "headers", "request", "mediaType"]); // extract variable names from URL to calculate remaining variables later
-
-  const urlVariableNames = extractUrlVariableNames(url);
-  url = parseUrl(url).expand(parameters);
-
-  if (!/^http/.test(url)) {
-    url = options.baseUrl + url;
-  }
-
-  const omittedParameters = Object.keys(options).filter(option => urlVariableNames.includes(option)).concat("baseUrl");
-  const remainingParameters = omit(parameters, omittedParameters);
-  const isBinaryRequset = /application\/octet-stream/i.test(headers.accept);
-
-  if (!isBinaryRequset) {
-    if (options.mediaType.format) {
-      // e.g. application/vnd.github.v3+json => application/vnd.github.v3.raw
-      headers.accept = headers.accept.split(/,/).map(preview => preview.replace(/application\/vnd(\.\w+)(\.v3)?(\.\w+)?(\+json)?$/, `application/vnd$1$2.${options.mediaType.format}`)).join(",");
-    }
-
-    if (options.mediaType.previews.length) {
-      const previewsFromAcceptHeader = headers.accept.match(/[\w-]+(?=-preview)/g) || [];
-      headers.accept = previewsFromAcceptHeader.concat(options.mediaType.previews).map(preview => {
-        const format = options.mediaType.format ? `.${options.mediaType.format}` : "+json";
-        return `application/vnd.github.${preview}-preview${format}`;
-      }).join(",");
-    }
-  } // for GET/HEAD requests, set URL query parameters from remaining parameters
-  // for PATCH/POST/PUT/DELETE requests, set request body from remaining parameters
-
-
-  if (["GET", "HEAD"].includes(method)) {
-    url = addQueryParameters(url, remainingParameters);
-  } else {
-    if ("data" in remainingParameters) {
-      body = remainingParameters.data;
-    } else {
-      if (Object.keys(remainingParameters).length) {
-        body = remainingParameters;
-      } else {
-        headers["content-length"] = 0;
-      }
-    }
-  } // default content-type for JSON if body is set
-
-
-  if (!headers["content-type"] && typeof body !== "undefined") {
-    headers["content-type"] = "application/json; charset=utf-8";
-  } // GitHub expects 'content-length: 0' header for PUT/PATCH requests without body.
-  // fetch does not allow to set `content-length` header, but we can set body to an empty string
-
-
-  if (["PATCH", "PUT"].includes(method) && typeof body === "undefined") {
-    body = "";
-  } // Only return body/request keys if present
-
-
-  return Object.assign({
-    method,
-    url,
-    headers
-  }, typeof body !== "undefined" ? {
-    body
-  } : null, options.request ? {
-    request: options.request
-  } : null);
-}
-
-function endpointWithDefaults(defaults, route, options) {
-  return parse(merge(defaults, route, options));
-}
-
-function withDefaults(oldDefaults, newDefaults) {
-  const DEFAULTS = merge(oldDefaults, newDefaults);
-  const endpoint = endpointWithDefaults.bind(null, DEFAULTS);
-  return Object.assign(endpoint, {
-    DEFAULTS,
-    defaults: withDefaults.bind(null, DEFAULTS),
-    merge: merge.bind(null, DEFAULTS),
-    parse
-  });
-}
-
-const VERSION = "6.0.3";
-
-const userAgent = `octokit-endpoint.js/${VERSION} ${universalUserAgent.getUserAgent()}`; // DEFAULTS has all properties set that EndpointOptions has, except url.
-// So we use RequestParameters and add method as additional required property.
-
-const DEFAULTS = {
-  method: "GET",
-  baseUrl: "https://api.github.com",
-  headers: {
-    accept: "application/vnd.github.v3+json",
-    "user-agent": userAgent
-  },
-  mediaType: {
-    format: "",
-    previews: []
-  }
-};
-
-const endpoint = withDefaults(null, DEFAULTS);
-
-exports.endpoint = endpoint;
+exports.getUserAgent = getUserAgent;
 //# sourceMappingURL=index.js.map
 
 
 /***/ }),
 
-/***/ 595:
-/***/ (function(module, __unusedexports, __webpack_require__) {
+/***/ 900:
+/***/ (function(__unusedmodule, exports, __webpack_require__) {
 
-var register = __webpack_require__(434)
-var addHook = __webpack_require__(807)
-var removeHook = __webpack_require__(695)
+"use strict";
 
-// bind with array of arguments: https://stackoverflow.com/a/21792913
-var bind = Function.bind
-var bindable = bind.bind(bind)
 
-function bindApi (hook, state, name) {
-  var removeHookRef = bindable(removeHook, null).apply(null, name ? [state, name] : [state])
-  hook.api = { remove: removeHookRef }
-  hook.remove = removeHookRef
+Object.defineProperty(exports, '__esModule', { value: true });
 
-  ;['before', 'error', 'after', 'wrap'].forEach(function (kind) {
-    var args = name ? [state, kind, name] : [state, kind]
-    hook[kind] = hook.api[kind] = bindable(addHook, null).apply(null, args)
-  })
-}
+var universalUserAgent = __webpack_require__(898);
+var beforeAfterHook = __webpack_require__(344);
+var request = __webpack_require__(277);
+var graphql = __webpack_require__(71);
+var authToken = __webpack_require__(268);
 
-function HookSingular () {
-  var singularHookName = 'h'
-  var singularHookState = {
-    registry: {}
-  }
-  var singularHook = register.bind(null, singularHookState, singularHookName)
-  bindApi(singularHook, singularHookState, singularHookName)
-  return singularHook
-}
-
-function HookCollection () {
-  var state = {
-    registry: {}
+function _defineProperty(obj, key, value) {
+  if (key in obj) {
+    Object.defineProperty(obj, key, {
+      value: value,
+      enumerable: true,
+      configurable: true,
+      writable: true
+    });
+  } else {
+    obj[key] = value;
   }
 
-  var hook = register.bind(null, state)
-  bindApi(hook, state)
-
-  return hook
+  return obj;
 }
 
-var collectionHookDeprecationMessageDisplayed = false
-function Hook () {
-  if (!collectionHookDeprecationMessageDisplayed) {
-    console.warn('[before-after-hook]: "Hook()" repurposing warning, use "Hook.Collection()". Read more: https://git.io/upgrade-before-after-hook-to-1.4')
-    collectionHookDeprecationMessageDisplayed = true
+function ownKeys(object, enumerableOnly) {
+  var keys = Object.keys(object);
+
+  if (Object.getOwnPropertySymbols) {
+    var symbols = Object.getOwnPropertySymbols(object);
+    if (enumerableOnly) symbols = symbols.filter(function (sym) {
+      return Object.getOwnPropertyDescriptor(object, sym).enumerable;
+    });
+    keys.push.apply(keys, symbols);
   }
-  return HookCollection()
+
+  return keys;
 }
 
-Hook.Singular = HookSingular.bind()
-Hook.Collection = HookCollection.bind()
+function _objectSpread2(target) {
+  for (var i = 1; i < arguments.length; i++) {
+    var source = arguments[i] != null ? arguments[i] : {};
 
-module.exports = Hook
-// expose constructors as a named property for TypeScript
-module.exports.Hook = Hook
-module.exports.Singular = Hook.Singular
-module.exports.Collection = Hook.Collection
+    if (i % 2) {
+      ownKeys(Object(source), true).forEach(function (key) {
+        _defineProperty(target, key, source[key]);
+      });
+    } else if (Object.getOwnPropertyDescriptors) {
+      Object.defineProperties(target, Object.getOwnPropertyDescriptors(source));
+    } else {
+      ownKeys(Object(source)).forEach(function (key) {
+        Object.defineProperty(target, key, Object.getOwnPropertyDescriptor(source, key));
+      });
+    }
+  }
+
+  return target;
+}
+
+const VERSION = "3.1.0";
+
+class Octokit {
+  constructor(options = {}) {
+    const hook = new beforeAfterHook.Collection();
+    const requestDefaults = {
+      baseUrl: request.request.endpoint.DEFAULTS.baseUrl,
+      headers: {},
+      request: Object.assign({}, options.request, {
+        hook: hook.bind(null, "request")
+      }),
+      mediaType: {
+        previews: [],
+        format: ""
+      }
+    }; // prepend default user agent with `options.userAgent` if set
+
+    requestDefaults.headers["user-agent"] = [options.userAgent, `octokit-core.js/${VERSION} ${universalUserAgent.getUserAgent()}`].filter(Boolean).join(" ");
+
+    if (options.baseUrl) {
+      requestDefaults.baseUrl = options.baseUrl;
+    }
+
+    if (options.previews) {
+      requestDefaults.mediaType.previews = options.previews;
+    }
+
+    if (options.timeZone) {
+      requestDefaults.headers["time-zone"] = options.timeZone;
+    }
+
+    this.request = request.request.defaults(requestDefaults);
+    this.graphql = graphql.withCustomRequest(this.request).defaults(_objectSpread2(_objectSpread2({}, requestDefaults), {}, {
+      baseUrl: requestDefaults.baseUrl.replace(/\/api\/v3$/, "/api")
+    }));
+    this.log = Object.assign({
+      debug: () => {},
+      info: () => {},
+      warn: console.warn.bind(console),
+      error: console.error.bind(console)
+    }, options.log);
+    this.hook = hook; // (1) If neither `options.authStrategy` nor `options.auth` are set, the `octokit` instance
+    //     is unauthenticated. The `this.auth()` method is a no-op and no request hook is registred.
+    // (2) If only `options.auth` is set, use the default token authentication strategy.
+    // (3) If `options.authStrategy` is set then use it and pass in `options.auth`. Always pass own request as many strategies accept a custom request instance.
+    // TODO: type `options.auth` based on `options.authStrategy`.
+
+    if (!options.authStrategy) {
+      if (!options.auth) {
+        // (1)
+        this.auth = async () => ({
+          type: "unauthenticated"
+        });
+      } else {
+        // (2)
+        const auth = authToken.createTokenAuth(options.auth); // @ts-ignore  ¯\_(ツ)_/¯
+
+        hook.wrap("request", auth.hook);
+        this.auth = auth;
+      }
+    } else {
+      const auth = options.authStrategy(Object.assign({
+        request: this.request
+      }, options.auth)); // @ts-ignore  ¯\_(ツ)_/¯
+
+      hook.wrap("request", auth.hook);
+      this.auth = auth;
+    } // apply plugins
+    // https://stackoverflow.com/a/16345172
+
+
+    const classConstructor = this.constructor;
+    classConstructor.plugins.forEach(plugin => {
+      Object.assign(this, plugin(this, options));
+    });
+  }
+
+  static defaults(defaults) {
+    const OctokitWithDefaults = class extends this {
+      constructor(...args) {
+        const options = args[0] || {};
+
+        if (typeof defaults === "function") {
+          super(defaults(options));
+          return;
+        }
+
+        super(Object.assign({}, defaults, options, options.userAgent && defaults.userAgent ? {
+          userAgent: `${options.userAgent} ${defaults.userAgent}`
+        } : null));
+      }
+
+    };
+    return OctokitWithDefaults;
+  }
+  /**
+   * Attach a plugin (or many) to your Octokit instance.
+   *
+   * @example
+   * const API = Octokit.plugin(plugin1, plugin2, plugin3, ...)
+   */
+
+
+  static plugin(...newPlugins) {
+    var _a;
+
+    const currentPlugins = this.plugins;
+    const NewOctokit = (_a = class extends this {}, _a.plugins = currentPlugins.concat(newPlugins.filter(plugin => !currentPlugins.includes(plugin))), _a);
+    return NewOctokit;
+  }
+
+}
+Octokit.VERSION = VERSION;
+Octokit.plugins = [];
+
+exports.Octokit = Octokit;
+//# sourceMappingURL=index.js.map
 
 
 /***/ }),
 
-/***/ 604:
+/***/ 925:
+/***/ (function(module) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var XMLStringifier,
+    bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
+    hasProp = {}.hasOwnProperty;
+
+  module.exports = XMLStringifier = (function() {
+    function XMLStringifier(options) {
+      this.assertLegalName = bind(this.assertLegalName, this);
+      this.assertLegalChar = bind(this.assertLegalChar, this);
+      var key, ref, value;
+      options || (options = {});
+      this.options = options;
+      if (!this.options.version) {
+        this.options.version = '1.0';
+      }
+      ref = options.stringify || {};
+      for (key in ref) {
+        if (!hasProp.call(ref, key)) continue;
+        value = ref[key];
+        this[key] = value;
+      }
+    }
+
+    XMLStringifier.prototype.name = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalName('' + val || '');
+    };
+
+    XMLStringifier.prototype.text = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar(this.textEscape('' + val || ''));
+    };
+
+    XMLStringifier.prototype.cdata = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      val = '' + val || '';
+      val = val.replace(']]>', ']]]]><![CDATA[>');
+      return this.assertLegalChar(val);
+    };
+
+    XMLStringifier.prototype.comment = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      val = '' + val || '';
+      if (val.match(/--/)) {
+        throw new Error("Comment text cannot contain double-hypen: " + val);
+      }
+      return this.assertLegalChar(val);
+    };
+
+    XMLStringifier.prototype.raw = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return '' + val || '';
+    };
+
+    XMLStringifier.prototype.attValue = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar(this.attEscape(val = '' + val || ''));
+    };
+
+    XMLStringifier.prototype.insTarget = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar('' + val || '');
+    };
+
+    XMLStringifier.prototype.insValue = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      val = '' + val || '';
+      if (val.match(/\?>/)) {
+        throw new Error("Invalid processing instruction value: " + val);
+      }
+      return this.assertLegalChar(val);
+    };
+
+    XMLStringifier.prototype.xmlVersion = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      val = '' + val || '';
+      if (!val.match(/1\.[0-9]+/)) {
+        throw new Error("Invalid version number: " + val);
+      }
+      return val;
+    };
+
+    XMLStringifier.prototype.xmlEncoding = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      val = '' + val || '';
+      if (!val.match(/^[A-Za-z](?:[A-Za-z0-9._-])*$/)) {
+        throw new Error("Invalid encoding: " + val);
+      }
+      return this.assertLegalChar(val);
+    };
+
+    XMLStringifier.prototype.xmlStandalone = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      if (val) {
+        return "yes";
+      } else {
+        return "no";
+      }
+    };
+
+    XMLStringifier.prototype.dtdPubID = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar('' + val || '');
+    };
+
+    XMLStringifier.prototype.dtdSysID = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar('' + val || '');
+    };
+
+    XMLStringifier.prototype.dtdElementValue = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar('' + val || '');
+    };
+
+    XMLStringifier.prototype.dtdAttType = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar('' + val || '');
+    };
+
+    XMLStringifier.prototype.dtdAttDefault = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar('' + val || '');
+    };
+
+    XMLStringifier.prototype.dtdEntityValue = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar('' + val || '');
+    };
+
+    XMLStringifier.prototype.dtdNData = function(val) {
+      if (this.options.noValidation) {
+        return val;
+      }
+      return this.assertLegalChar('' + val || '');
+    };
+
+    XMLStringifier.prototype.convertAttKey = '@';
+
+    XMLStringifier.prototype.convertPIKey = '?';
+
+    XMLStringifier.prototype.convertTextKey = '#text';
+
+    XMLStringifier.prototype.convertCDataKey = '#cdata';
+
+    XMLStringifier.prototype.convertCommentKey = '#comment';
+
+    XMLStringifier.prototype.convertRawKey = '#raw';
+
+    XMLStringifier.prototype.assertLegalChar = function(str) {
+      var regex, res;
+      if (this.options.noValidation) {
+        return str;
+      }
+      regex = '';
+      if (this.options.version === '1.0') {
+        regex = /[\0-\x08\x0B\f\x0E-\x1F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
+        if (res = str.match(regex)) {
+          throw new Error("Invalid character in string: " + str + " at index " + res.index);
+        }
+      } else if (this.options.version === '1.1') {
+        regex = /[\0\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
+        if (res = str.match(regex)) {
+          throw new Error("Invalid character in string: " + str + " at index " + res.index);
+        }
+      }
+      return str;
+    };
+
+    XMLStringifier.prototype.assertLegalName = function(str) {
+      var regex;
+      if (this.options.noValidation) {
+        return str;
+      }
+      this.assertLegalChar(str);
+      regex = /^([:A-Z_a-z\xC0-\xD6\xD8-\xF6\xF8-\u02FF\u0370-\u037D\u037F-\u1FFF\u200C\u200D\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD]|[\uD800-\uDB7F][\uDC00-\uDFFF])([\x2D\.0-:A-Z_a-z\xB7\xC0-\xD6\xD8-\xF6\xF8-\u037D\u037F-\u1FFF\u200C\u200D\u203F\u2040\u2070-\u218F\u2C00-\u2FEF\u3001-\uD7FF\uF900-\uFDCF\uFDF0-\uFFFD]|[\uD800-\uDB7F][\uDC00-\uDFFF])*$/;
+      if (!str.match(regex)) {
+        throw new Error("Invalid character in name");
+      }
+      return str;
+    };
+
+    XMLStringifier.prototype.textEscape = function(str) {
+      var ampregex;
+      if (this.options.noValidation) {
+        return str;
+      }
+      ampregex = this.options.noDoubleEncoding ? /(?!&\S+;)&/g : /&/g;
+      return str.replace(ampregex, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r/g, '&#xD;');
+    };
+
+    XMLStringifier.prototype.attEscape = function(str) {
+      var ampregex;
+      if (this.options.noValidation) {
+        return str;
+      }
+      ampregex = this.options.noDoubleEncoding ? /(?!&\S+;)&/g : /&/g;
+      return str.replace(ampregex, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;').replace(/\t/g, '&#x9;').replace(/\n/g, '&#xA;').replace(/\r/g, '&#xD;');
+    };
+
+    return XMLStringifier;
+
+  })();
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 933:
+/***/ (function(module, __unusedexports, __webpack_require__) {
+
+// Generated by CoffeeScript 1.12.7
+(function() {
+  var NodeType, XMLDTDAttList, XMLDTDElement, XMLDTDEntity, XMLDTDNotation, XMLDocType, XMLNamedNodeMap, XMLNode, isObject,
+    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    hasProp = {}.hasOwnProperty;
+
+  isObject = __webpack_require__(779).isObject;
+
+  XMLNode = __webpack_require__(698);
+
+  NodeType = __webpack_require__(65);
+
+  XMLDTDAttList = __webpack_require__(241);
+
+  XMLDTDEntity = __webpack_require__(802);
+
+  XMLDTDElement = __webpack_require__(578);
+
+  XMLDTDNotation = __webpack_require__(331);
+
+  XMLNamedNodeMap = __webpack_require__(19);
+
+  module.exports = XMLDocType = (function(superClass) {
+    extend(XMLDocType, superClass);
+
+    function XMLDocType(parent, pubID, sysID) {
+      var child, i, len, ref, ref1, ref2;
+      XMLDocType.__super__.constructor.call(this, parent);
+      this.type = NodeType.DocType;
+      if (parent.children) {
+        ref = parent.children;
+        for (i = 0, len = ref.length; i < len; i++) {
+          child = ref[i];
+          if (child.type === NodeType.Element) {
+            this.name = child.name;
+            break;
+          }
+        }
+      }
+      this.documentObject = parent;
+      if (isObject(pubID)) {
+        ref1 = pubID, pubID = ref1.pubID, sysID = ref1.sysID;
+      }
+      if (sysID == null) {
+        ref2 = [pubID, sysID], sysID = ref2[0], pubID = ref2[1];
+      }
+      if (pubID != null) {
+        this.pubID = this.stringify.dtdPubID(pubID);
+      }
+      if (sysID != null) {
+        this.sysID = this.stringify.dtdSysID(sysID);
+      }
+    }
+
+    Object.defineProperty(XMLDocType.prototype, 'entities', {
+      get: function() {
+        var child, i, len, nodes, ref;
+        nodes = {};
+        ref = this.children;
+        for (i = 0, len = ref.length; i < len; i++) {
+          child = ref[i];
+          if ((child.type === NodeType.EntityDeclaration) && !child.pe) {
+            nodes[child.name] = child;
+          }
+        }
+        return new XMLNamedNodeMap(nodes);
+      }
+    });
+
+    Object.defineProperty(XMLDocType.prototype, 'notations', {
+      get: function() {
+        var child, i, len, nodes, ref;
+        nodes = {};
+        ref = this.children;
+        for (i = 0, len = ref.length; i < len; i++) {
+          child = ref[i];
+          if (child.type === NodeType.NotationDeclaration) {
+            nodes[child.name] = child;
+          }
+        }
+        return new XMLNamedNodeMap(nodes);
+      }
+    });
+
+    Object.defineProperty(XMLDocType.prototype, 'publicId', {
+      get: function() {
+        return this.pubID;
+      }
+    });
+
+    Object.defineProperty(XMLDocType.prototype, 'systemId', {
+      get: function() {
+        return this.sysID;
+      }
+    });
+
+    Object.defineProperty(XMLDocType.prototype, 'internalSubset', {
+      get: function() {
+        throw new Error("This DOM method is not implemented." + this.debugInfo());
+      }
+    });
+
+    XMLDocType.prototype.element = function(name, value) {
+      var child;
+      child = new XMLDTDElement(this, name, value);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLDocType.prototype.attList = function(elementName, attributeName, attributeType, defaultValueType, defaultValue) {
+      var child;
+      child = new XMLDTDAttList(this, elementName, attributeName, attributeType, defaultValueType, defaultValue);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLDocType.prototype.entity = function(name, value) {
+      var child;
+      child = new XMLDTDEntity(this, false, name, value);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLDocType.prototype.pEntity = function(name, value) {
+      var child;
+      child = new XMLDTDEntity(this, true, name, value);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLDocType.prototype.notation = function(name, value) {
+      var child;
+      child = new XMLDTDNotation(this, name, value);
+      this.children.push(child);
+      return this;
+    };
+
+    XMLDocType.prototype.toString = function(options) {
+      return this.options.writer.docType(this, this.options.writer.filterOptions(options));
+    };
+
+    XMLDocType.prototype.ele = function(name, value) {
+      return this.element(name, value);
+    };
+
+    XMLDocType.prototype.att = function(elementName, attributeName, attributeType, defaultValueType, defaultValue) {
+      return this.attList(elementName, attributeName, attributeType, defaultValueType, defaultValue);
+    };
+
+    XMLDocType.prototype.ent = function(name, value) {
+      return this.entity(name, value);
+    };
+
+    XMLDocType.prototype.pent = function(name, value) {
+      return this.pEntity(name, value);
+    };
+
+    XMLDocType.prototype.not = function(name, value) {
+      return this.notation(name, value);
+    };
+
+    XMLDocType.prototype.up = function() {
+      return this.root() || this.documentObject;
+    };
+
+    XMLDocType.prototype.isEqualNode = function(node) {
+      if (!XMLDocType.__super__.isEqualNode.apply(this, arguments).isEqualNode(node)) {
+        return false;
+      }
+      if (node.name !== this.name) {
+        return false;
+      }
+      if (node.publicId !== this.publicId) {
+        return false;
+      }
+      if (node.systemId !== this.systemId) {
+        return false;
+      }
+      return true;
+    };
+
+    return XMLDocType;
+
+  })(XMLNode);
+
+}).call(this);
+
+
+/***/ }),
+
+/***/ 960:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 // Generated by CoffeeScript 1.12.7
@@ -13508,11 +16481,11 @@ module.exports.Collection = Hook.Collection
     extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     hasProp = {}.hasOwnProperty;
 
-  isObject = __webpack_require__(774).isObject;
+  isObject = __webpack_require__(779).isObject;
 
-  XMLNode = __webpack_require__(828);
+  XMLNode = __webpack_require__(698);
 
-  NodeType = __webpack_require__(700);
+  NodeType = __webpack_require__(65);
 
   module.exports = XMLDeclaration = (function(superClass) {
     extend(XMLDeclaration, superClass);
@@ -13549,160 +16522,33 @@ module.exports.Collection = Hook.Collection
 
 /***/ }),
 
-/***/ 605:
-/***/ (function(module) {
+/***/ 981:
+/***/ (function(__unusedmodule, exports) {
 
-module.exports = require("http");
-
-/***/ }),
-
-/***/ 613:
-/***/ (function(module) {
-
-module.exports = eval("require")("encoding");
-
-
-/***/ }),
-
-/***/ 614:
-/***/ (function(module) {
-
-module.exports = require("events");
-
-/***/ }),
-
-/***/ 622:
-/***/ (function(module) {
-
-module.exports = require("path");
-
-/***/ }),
-
-/***/ 631:
-/***/ (function(module) {
-
-module.exports = require("net");
-
-/***/ }),
-
-/***/ 638:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getOctokitOptions = exports.GitHub = exports.context = void 0;
-const Context = __importStar(__webpack_require__(433));
-const Utils = __importStar(__webpack_require__(692));
-// octokit + plugins
-const core_1 = __webpack_require__(49);
-const plugin_rest_endpoint_methods_1 = __webpack_require__(23);
-const plugin_paginate_rest_1 = __webpack_require__(763);
-exports.context = new Context.Context();
-const baseUrl = Utils.getApiBaseUrl();
-const defaults = {
-    baseUrl,
-    request: {
-        agent: Utils.getProxyAgent(baseUrl)
+// Generated by CoffeeScript 1.12.7
+(function() {
+  "use strict";
+  exports.stripBOM = function(str) {
+    if (str[0] === '\uFEFF') {
+      return str.substring(1);
+    } else {
+      return str;
     }
-};
-exports.GitHub = core_1.Octokit.plugin(plugin_rest_endpoint_methods_1.restEndpointMethods, plugin_paginate_rest_1.paginateRest).defaults(defaults);
-/**
- * Convience function to correctly format Octokit Options to pass into the constructor.
- *
- * @param     token    the repo PAT or GITHUB_TOKEN
- * @param     options  other options to set
- */
-function getOctokitOptions(token, options) {
-    const opts = Object.assign({}, options || {}); // Shallow clone - don't mutate the object provided by the caller
-    // Auth
-    const auth = Utils.getAuthString(token, opts);
-    if (auth) {
-        opts.auth = auth;
-    }
-    return opts;
-}
-exports.getOctokitOptions = getOctokitOptions;
-//# sourceMappingURL=utils.js.map
+  };
 
-/***/ }),
-
-/***/ 646:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-var wrappy = __webpack_require__(818)
-module.exports = wrappy(once)
-module.exports.strict = wrappy(onceStrict)
-
-once.proto = once(function () {
-  Object.defineProperty(Function.prototype, 'once', {
-    value: function () {
-      return once(this)
-    },
-    configurable: true
-  })
-
-  Object.defineProperty(Function.prototype, 'onceStrict', {
-    value: function () {
-      return onceStrict(this)
-    },
-    configurable: true
-  })
-})
-
-function once (fn) {
-  var f = function () {
-    if (f.called) return f.value
-    f.called = true
-    return f.value = fn.apply(this, arguments)
-  }
-  f.called = false
-  return f
-}
-
-function onceStrict (fn) {
-  var f = function () {
-    if (f.called)
-      throw new Error(f.onceError)
-    f.called = true
-    return f.value = fn.apply(this, arguments)
-  }
-  var name = fn.name || 'Function wrapped with `once`'
-  f.onceError = name + " shouldn't be called more than once"
-  f.called = false
-  return f
-}
+}).call(this);
 
 
 /***/ }),
 
-/***/ 656:
+/***/ 983:
 /***/ (function(module, __unusedexports, __webpack_require__) {
 
 "use strict";
 
 
 const fs = __webpack_require__(747);
-const shebangCommand = __webpack_require__(436);
+const shebangCommand = __webpack_require__(35);
 
 function readShebang(command) {
     // Read the first 150 bytes from the file
@@ -13735,37 +16581,7 @@ module.exports = readShebang;
 
 /***/ }),
 
-/***/ 669:
-/***/ (function(module) {
-
-module.exports = require("util");
-
-/***/ }),
-
-/***/ 673:
-/***/ (function(module) {
-
-"use strict";
-
-module.exports = (promise, onFinally) => {
-	onFinally = onFinally || (() => {});
-
-	return promise.then(
-		val => new Promise(resolve => {
-			resolve(onFinally());
-		}).then(() => val),
-		err => new Promise(resolve => {
-			resolve(onFinally());
-		}).then(() => {
-			throw err;
-		})
-	);
-};
-
-
-/***/ }),
-
-/***/ 686:
+/***/ 990:
 /***/ (function(__unusedmodule, exports, __webpack_require__) {
 
 "use strict";
@@ -13776,7 +16592,7 @@ var tls = __webpack_require__(16);
 var http = __webpack_require__(605);
 var https = __webpack_require__(211);
 var events = __webpack_require__(614);
-var assert = __webpack_require__(59);
+var assert = __webpack_require__(357);
 var util = __webpack_require__(669);
 
 
@@ -14033,2828 +16849,6 @@ if (process.env.NODE_DEBUG && /\btunnel\b/.test(process.env.NODE_DEBUG)) {
   debug = function() {};
 }
 exports.debug = debug; // for test
-
-
-/***/ }),
-
-/***/ 688:
-/***/ (function(module) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var XMLDOMImplementation;
-
-  module.exports = XMLDOMImplementation = (function() {
-    function XMLDOMImplementation() {}
-
-    XMLDOMImplementation.prototype.hasFeature = function(feature, version) {
-      return true;
-    };
-
-    XMLDOMImplementation.prototype.createDocumentType = function(qualifiedName, publicId, systemId) {
-      throw new Error("This DOM method is not implemented.");
-    };
-
-    XMLDOMImplementation.prototype.createDocument = function(namespaceURI, qualifiedName, doctype) {
-      throw new Error("This DOM method is not implemented.");
-    };
-
-    XMLDOMImplementation.prototype.createHTMLDocument = function(title) {
-      throw new Error("This DOM method is not implemented.");
-    };
-
-    XMLDOMImplementation.prototype.getFeature = function(feature, version) {
-      throw new Error("This DOM method is not implemented.");
-    };
-
-    return XMLDOMImplementation;
-
-  })();
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 692:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getApiBaseUrl = exports.getProxyAgent = exports.getAuthString = void 0;
-const httpClient = __importStar(__webpack_require__(368));
-function getAuthString(token, options) {
-    if (!token && !options.auth) {
-        throw new Error('Parameter token or opts.auth is required');
-    }
-    else if (token && options.auth) {
-        throw new Error('Parameters token and opts.auth may not both be specified');
-    }
-    return typeof options.auth === 'string' ? options.auth : `token ${token}`;
-}
-exports.getAuthString = getAuthString;
-function getProxyAgent(destinationUrl) {
-    const hc = new httpClient.HttpClient();
-    return hc.getAgent(destinationUrl);
-}
-exports.getProxyAgent = getProxyAgent;
-function getApiBaseUrl() {
-    return process.env['GITHUB_API_URL'] || 'https://api.github.com';
-}
-exports.getApiBaseUrl = getApiBaseUrl;
-//# sourceMappingURL=utils.js.map
-
-/***/ }),
-
-/***/ 695:
-/***/ (function(module) {
-
-module.exports = removeHook
-
-function removeHook (state, name, method) {
-  if (!state.registry[name]) {
-    return
-  }
-
-  var index = state.registry[name]
-    .map(function (registered) { return registered.orig })
-    .indexOf(method)
-
-  if (index === -1) {
-    return
-  }
-
-  state.registry[name].splice(index, 1)
-}
-
-
-/***/ }),
-
-/***/ 699:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, WriterState, XMLDOMImplementation, XMLDocument, XMLDocumentCB, XMLStreamWriter, XMLStringWriter, assign, isFunction, ref;
-
-  ref = __webpack_require__(774), assign = ref.assign, isFunction = ref.isFunction;
-
-  XMLDOMImplementation = __webpack_require__(688);
-
-  XMLDocument = __webpack_require__(137);
-
-  XMLDocumentCB = __webpack_require__(343);
-
-  XMLStringWriter = __webpack_require__(982);
-
-  XMLStreamWriter = __webpack_require__(987);
-
-  NodeType = __webpack_require__(700);
-
-  WriterState = __webpack_require__(46);
-
-  module.exports.create = function(name, xmldec, doctype, options) {
-    var doc, root;
-    if (name == null) {
-      throw new Error("Root element needs a name.");
-    }
-    options = assign({}, xmldec, doctype, options);
-    doc = new XMLDocument(options);
-    root = doc.element(name);
-    if (!options.headless) {
-      doc.declaration(options);
-      if ((options.pubID != null) || (options.sysID != null)) {
-        doc.dtd(options);
-      }
-    }
-    return root;
-  };
-
-  module.exports.begin = function(options, onData, onEnd) {
-    var ref1;
-    if (isFunction(options)) {
-      ref1 = [options, onData], onData = ref1[0], onEnd = ref1[1];
-      options = {};
-    }
-    if (onData) {
-      return new XMLDocumentCB(options, onData, onEnd);
-    } else {
-      return new XMLDocument(options);
-    }
-  };
-
-  module.exports.stringWriter = function(options) {
-    return new XMLStringWriter(options);
-  };
-
-  module.exports.streamWriter = function(stream, options) {
-    return new XMLStreamWriter(stream, options);
-  };
-
-  module.exports.implementation = new XMLDOMImplementation();
-
-  module.exports.nodeType = NodeType;
-
-  module.exports.writerState = WriterState;
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 700:
-/***/ (function(module) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  module.exports = {
-    Element: 1,
-    Attribute: 2,
-    Text: 3,
-    CData: 4,
-    EntityReference: 5,
-    EntityDeclaration: 6,
-    ProcessingInstruction: 7,
-    Comment: 8,
-    Document: 9,
-    DocType: 10,
-    DocumentFragment: 11,
-    NotationDeclaration: 12,
-    Declaration: 201,
-    Raw: 202,
-    AttributeDeclaration: 203,
-    ElementDeclaration: 204,
-    Dummy: 205
-  };
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 704:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Note: since nyc uses this module to output coverage, any lines
-// that are in the direct sync flow of nyc's outputCoverage are
-// ignored, since we can never get coverage for them.
-var assert = __webpack_require__(59)
-var signals = __webpack_require__(810)
-var isWin = /^win/i.test(process.platform)
-
-var EE = __webpack_require__(614)
-/* istanbul ignore if */
-if (typeof EE !== 'function') {
-  EE = EE.EventEmitter
-}
-
-var emitter
-if (process.__signal_exit_emitter__) {
-  emitter = process.__signal_exit_emitter__
-} else {
-  emitter = process.__signal_exit_emitter__ = new EE()
-  emitter.count = 0
-  emitter.emitted = {}
-}
-
-// Because this emitter is a global, we have to check to see if a
-// previous version of this library failed to enable infinite listeners.
-// I know what you're about to say.  But literally everything about
-// signal-exit is a compromise with evil.  Get used to it.
-if (!emitter.infinite) {
-  emitter.setMaxListeners(Infinity)
-  emitter.infinite = true
-}
-
-module.exports = function (cb, opts) {
-  assert.equal(typeof cb, 'function', 'a callback must be provided for exit handler')
-
-  if (loaded === false) {
-    load()
-  }
-
-  var ev = 'exit'
-  if (opts && opts.alwaysLast) {
-    ev = 'afterexit'
-  }
-
-  var remove = function () {
-    emitter.removeListener(ev, cb)
-    if (emitter.listeners('exit').length === 0 &&
-        emitter.listeners('afterexit').length === 0) {
-      unload()
-    }
-  }
-  emitter.on(ev, cb)
-
-  return remove
-}
-
-module.exports.unload = unload
-function unload () {
-  if (!loaded) {
-    return
-  }
-  loaded = false
-
-  signals.forEach(function (sig) {
-    try {
-      process.removeListener(sig, sigListeners[sig])
-    } catch (er) {}
-  })
-  process.emit = originalProcessEmit
-  process.reallyExit = originalProcessReallyExit
-  emitter.count -= 1
-}
-
-function emit (event, code, signal) {
-  if (emitter.emitted[event]) {
-    return
-  }
-  emitter.emitted[event] = true
-  emitter.emit(event, code, signal)
-}
-
-// { <signal>: <listener fn>, ... }
-var sigListeners = {}
-signals.forEach(function (sig) {
-  sigListeners[sig] = function listener () {
-    // If there are no other listeners, an exit is coming!
-    // Simplest way: remove us and then re-send the signal.
-    // We know that this will kill the process, so we can
-    // safely emit now.
-    var listeners = process.listeners(sig)
-    if (listeners.length === emitter.count) {
-      unload()
-      emit('exit', null, sig)
-      /* istanbul ignore next */
-      emit('afterexit', null, sig)
-      /* istanbul ignore next */
-      if (isWin && sig === 'SIGHUP') {
-        // "SIGHUP" throws an `ENOSYS` error on Windows,
-        // so use a supported signal instead
-        sig = 'SIGINT'
-      }
-      process.kill(process.pid, sig)
-    }
-  }
-})
-
-module.exports.signals = function () {
-  return signals
-}
-
-module.exports.load = load
-
-var loaded = false
-
-function load () {
-  if (loaded) {
-    return
-  }
-  loaded = true
-
-  // This is the number of onSignalExit's that are in play.
-  // It's important so that we can count the correct number of
-  // listeners on signals, and don't wait for the other one to
-  // handle it instead of us.
-  emitter.count += 1
-
-  signals = signals.filter(function (sig) {
-    try {
-      process.on(sig, sigListeners[sig])
-      return true
-    } catch (er) {
-      return false
-    }
-  })
-
-  process.emit = processEmit
-  process.reallyExit = processReallyExit
-}
-
-var originalProcessReallyExit = process.reallyExit
-function processReallyExit (code) {
-  process.exitCode = code || 0
-  emit('exit', process.exitCode, null)
-  /* istanbul ignore next */
-  emit('afterexit', process.exitCode, null)
-  /* istanbul ignore next */
-  originalProcessReallyExit.call(process, process.exitCode)
-}
-
-var originalProcessEmit = process.emit
-function processEmit (ev, arg) {
-  if (ev === 'exit') {
-    if (arg !== undefined) {
-      process.exitCode = arg
-    }
-    var ret = originalProcessEmit.apply(this, arguments)
-    emit('exit', process.exitCode, null)
-    /* istanbul ignore next */
-    emit('afterexit', process.exitCode, null)
-    return ret
-  } else {
-    return originalProcessEmit.apply(this, arguments)
-  }
-}
-
-
-/***/ }),
-
-/***/ 705:
-/***/ (function(__unusedmodule, exports) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  exports.defaults = {
-    "0.1": {
-      explicitCharkey: false,
-      trim: true,
-      normalize: true,
-      normalizeTags: false,
-      attrkey: "@",
-      charkey: "#",
-      explicitArray: false,
-      ignoreAttrs: false,
-      mergeAttrs: false,
-      explicitRoot: false,
-      validator: null,
-      xmlns: false,
-      explicitChildren: false,
-      childkey: '@@',
-      charsAsChildren: false,
-      includeWhiteChars: false,
-      async: false,
-      strict: true,
-      attrNameProcessors: null,
-      attrValueProcessors: null,
-      tagNameProcessors: null,
-      valueProcessors: null,
-      emptyTag: ''
-    },
-    "0.2": {
-      explicitCharkey: false,
-      trim: false,
-      normalize: false,
-      normalizeTags: false,
-      attrkey: "$",
-      charkey: "_",
-      explicitArray: true,
-      ignoreAttrs: false,
-      mergeAttrs: false,
-      explicitRoot: true,
-      validator: null,
-      xmlns: false,
-      explicitChildren: false,
-      preserveChildrenOrder: false,
-      childkey: '$$',
-      charsAsChildren: false,
-      includeWhiteChars: false,
-      async: false,
-      strict: true,
-      attrNameProcessors: null,
-      attrValueProcessors: null,
-      tagNameProcessors: null,
-      valueProcessors: null,
-      rootName: 'root',
-      xmldec: {
-        'version': '1.0',
-        'encoding': 'UTF-8',
-        'standalone': true
-      },
-      doctype: null,
-      renderOpts: {
-        'pretty': true,
-        'indent': '  ',
-        'newline': '\n'
-      },
-      headless: false,
-      chunkSize: 10000,
-      emptyTag: '',
-      cdata: false
-    }
-  };
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 747:
-/***/ (function(module) {
-
-module.exports = require("fs");
-
-/***/ }),
-
-/***/ 761:
-/***/ (function(module) {
-
-module.exports = require("zlib");
-
-/***/ }),
-
-/***/ 763:
-/***/ (function(__unusedmodule, exports) {
-
-"use strict";
-
-
-Object.defineProperty(exports, '__esModule', { value: true });
-
-const VERSION = "2.2.3";
-
-/**
- * Some “list” response that can be paginated have a different response structure
- *
- * They have a `total_count` key in the response (search also has `incomplete_results`,
- * /installation/repositories also has `repository_selection`), as well as a key with
- * the list of the items which name varies from endpoint to endpoint.
- *
- * Octokit normalizes these responses so that paginated results are always returned following
- * the same structure. One challenge is that if the list response has only one page, no Link
- * header is provided, so this header alone is not sufficient to check wether a response is
- * paginated or not.
- *
- * We check if a "total_count" key is present in the response data, but also make sure that
- * a "url" property is not, as the "Get the combined status for a specific ref" endpoint would
- * otherwise match: https://developer.github.com/v3/repos/statuses/#get-the-combined-status-for-a-specific-ref
- */
-function normalizePaginatedListResponse(response) {
-  const responseNeedsNormalization = "total_count" in response.data && !("url" in response.data);
-  if (!responseNeedsNormalization) return response; // keep the additional properties intact as there is currently no other way
-  // to retrieve the same information.
-
-  const incompleteResults = response.data.incomplete_results;
-  const repositorySelection = response.data.repository_selection;
-  const totalCount = response.data.total_count;
-  delete response.data.incomplete_results;
-  delete response.data.repository_selection;
-  delete response.data.total_count;
-  const namespaceKey = Object.keys(response.data)[0];
-  const data = response.data[namespaceKey];
-  response.data = data;
-
-  if (typeof incompleteResults !== "undefined") {
-    response.data.incomplete_results = incompleteResults;
-  }
-
-  if (typeof repositorySelection !== "undefined") {
-    response.data.repository_selection = repositorySelection;
-  }
-
-  response.data.total_count = totalCount;
-  return response;
-}
-
-function iterator(octokit, route, parameters) {
-  const options = typeof route === "function" ? route.endpoint(parameters) : octokit.request.endpoint(route, parameters);
-  const requestMethod = typeof route === "function" ? route : octokit.request;
-  const method = options.method;
-  const headers = options.headers;
-  let url = options.url;
-  return {
-    [Symbol.asyncIterator]: () => ({
-      next() {
-        if (!url) {
-          return Promise.resolve({
-            done: true
-          });
-        }
-
-        return requestMethod({
-          method,
-          url,
-          headers
-        }).then(normalizePaginatedListResponse).then(response => {
-          // `response.headers.link` format:
-          // '<https://api.github.com/users/aseemk/followers?page=2>; rel="next", <https://api.github.com/users/aseemk/followers?page=2>; rel="last"'
-          // sets `url` to undefined if "next" URL is not present or `link` header is not set
-          url = ((response.headers.link || "").match(/<([^>]+)>;\s*rel="next"/) || [])[1];
-          return {
-            value: response
-          };
-        });
-      }
-
-    })
-  };
-}
-
-function paginate(octokit, route, parameters, mapFn) {
-  if (typeof parameters === "function") {
-    mapFn = parameters;
-    parameters = undefined;
-  }
-
-  return gather(octokit, [], iterator(octokit, route, parameters)[Symbol.asyncIterator](), mapFn);
-}
-
-function gather(octokit, results, iterator, mapFn) {
-  return iterator.next().then(result => {
-    if (result.done) {
-      return results;
-    }
-
-    let earlyExit = false;
-
-    function done() {
-      earlyExit = true;
-    }
-
-    results = results.concat(mapFn ? mapFn(result.value, done) : result.value.data);
-
-    if (earlyExit) {
-      return results;
-    }
-
-    return gather(octokit, results, iterator, mapFn);
-  });
-}
-
-/**
- * @param octokit Octokit instance
- * @param options Options passed to Octokit constructor
- */
-
-function paginateRest(octokit) {
-  return {
-    paginate: Object.assign(paginate.bind(null, octokit), {
-      iterator: iterator.bind(null, octokit)
-    })
-  };
-}
-paginateRest.VERSION = VERSION;
-
-exports.paginateRest = paginateRest;
-//# sourceMappingURL=index.js.map
-
-
-/***/ }),
-
-/***/ 774:
-/***/ (function(module) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var assign, getValue, isArray, isEmpty, isFunction, isObject, isPlainObject,
-    slice = [].slice,
-    hasProp = {}.hasOwnProperty;
-
-  assign = function() {
-    var i, key, len, source, sources, target;
-    target = arguments[0], sources = 2 <= arguments.length ? slice.call(arguments, 1) : [];
-    if (isFunction(Object.assign)) {
-      Object.assign.apply(null, arguments);
-    } else {
-      for (i = 0, len = sources.length; i < len; i++) {
-        source = sources[i];
-        if (source != null) {
-          for (key in source) {
-            if (!hasProp.call(source, key)) continue;
-            target[key] = source[key];
-          }
-        }
-      }
-    }
-    return target;
-  };
-
-  isFunction = function(val) {
-    return !!val && Object.prototype.toString.call(val) === '[object Function]';
-  };
-
-  isObject = function(val) {
-    var ref;
-    return !!val && ((ref = typeof val) === 'function' || ref === 'object');
-  };
-
-  isArray = function(val) {
-    if (isFunction(Array.isArray)) {
-      return Array.isArray(val);
-    } else {
-      return Object.prototype.toString.call(val) === '[object Array]';
-    }
-  };
-
-  isEmpty = function(val) {
-    var key;
-    if (isArray(val)) {
-      return !val.length;
-    } else {
-      for (key in val) {
-        if (!hasProp.call(val, key)) continue;
-        return false;
-      }
-      return true;
-    }
-  };
-
-  isPlainObject = function(val) {
-    var ctor, proto;
-    return isObject(val) && (proto = Object.getPrototypeOf(val)) && (ctor = proto.constructor) && (typeof ctor === 'function') && (ctor instanceof ctor) && (Function.prototype.toString.call(ctor) === Function.prototype.toString.call(Object));
-  };
-
-  getValue = function(obj) {
-    if (isFunction(obj.valueOf)) {
-      return obj.valueOf();
-    } else {
-      return obj;
-    }
-  };
-
-  module.exports.assign = assign;
-
-  module.exports.isFunction = isFunction;
-
-  module.exports.isObject = isObject;
-
-  module.exports.isArray = isArray;
-
-  module.exports.isEmpty = isEmpty;
-
-  module.exports.isPlainObject = isPlainObject;
-
-  module.exports.getValue = getValue;
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 777:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, XMLDTDEntity, XMLNode, isObject,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  isObject = __webpack_require__(774).isObject;
-
-  XMLNode = __webpack_require__(828);
-
-  NodeType = __webpack_require__(700);
-
-  module.exports = XMLDTDEntity = (function(superClass) {
-    extend(XMLDTDEntity, superClass);
-
-    function XMLDTDEntity(parent, pe, name, value) {
-      XMLDTDEntity.__super__.constructor.call(this, parent);
-      if (name == null) {
-        throw new Error("Missing DTD entity name. " + this.debugInfo(name));
-      }
-      if (value == null) {
-        throw new Error("Missing DTD entity value. " + this.debugInfo(name));
-      }
-      this.pe = !!pe;
-      this.name = this.stringify.name(name);
-      this.type = NodeType.EntityDeclaration;
-      if (!isObject(value)) {
-        this.value = this.stringify.dtdEntityValue(value);
-        this.internal = true;
-      } else {
-        if (!value.pubID && !value.sysID) {
-          throw new Error("Public and/or system identifiers are required for an external entity. " + this.debugInfo(name));
-        }
-        if (value.pubID && !value.sysID) {
-          throw new Error("System identifier is required for a public external entity. " + this.debugInfo(name));
-        }
-        this.internal = false;
-        if (value.pubID != null) {
-          this.pubID = this.stringify.dtdPubID(value.pubID);
-        }
-        if (value.sysID != null) {
-          this.sysID = this.stringify.dtdSysID(value.sysID);
-        }
-        if (value.nData != null) {
-          this.nData = this.stringify.dtdNData(value.nData);
-        }
-        if (this.pe && this.nData) {
-          throw new Error("Notation declaration is not allowed in a parameter entity. " + this.debugInfo(name));
-        }
-      }
-    }
-
-    Object.defineProperty(XMLDTDEntity.prototype, 'publicId', {
-      get: function() {
-        return this.pubID;
-      }
-    });
-
-    Object.defineProperty(XMLDTDEntity.prototype, 'systemId', {
-      get: function() {
-        return this.sysID;
-      }
-    });
-
-    Object.defineProperty(XMLDTDEntity.prototype, 'notationName', {
-      get: function() {
-        return this.nData || null;
-      }
-    });
-
-    Object.defineProperty(XMLDTDEntity.prototype, 'inputEncoding', {
-      get: function() {
-        return null;
-      }
-    });
-
-    Object.defineProperty(XMLDTDEntity.prototype, 'xmlEncoding', {
-      get: function() {
-        return null;
-      }
-    });
-
-    Object.defineProperty(XMLDTDEntity.prototype, 'xmlVersion', {
-      get: function() {
-        return null;
-      }
-    });
-
-    XMLDTDEntity.prototype.toString = function(options) {
-      return this.options.writer.dtdEntity(this, this.options.writer.filterOptions(options));
-    };
-
-    return XMLDTDEntity;
-
-  })(XMLNode);
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 793:
-/***/ (function(__unusedmodule, __unusedexports, __webpack_require__) {
-
-const core = __webpack_require__(357);
-const github = __webpack_require__(955);
-var propertiesReader = __webpack_require__(817);
-const dependencies = __webpack_require__(947);
-const sfdx = __webpack_require__(73);
-
-try {
-  
-  core.debug("=== index.js ===");
-  const payload = JSON.stringify(github.context.payload, undefined, 2)
-  core.debug(`The event payload: ${payload}`);
-  
-  //Variables declaration
-  var cert = {};
-  var login = {};
-  var deploy = {};
-  var propertiesPath = core.getInput('properties_file');
-  var properties = {};
-
-  //Load properties
-  if(propertiesPath){
-    core.info("Loading properties file: " + propertiesPath);
-    properties = propertiesReader(propertiesPath);
-  }else{
-    //Simulate load properties
-    properties.get = function(){return null};
-    core.info("There is not properites file to load.");
-  }
-
-  //Install dependecies  
-  dependencies.install();
-  
-  //Load cert params
-  cert.certificatePath = core.getInput('certificate_path');
-  cert.decryptionKey = core.getInput('decryption_key');
-  cert.decryptionIV = core.getInput('decryption_iv');
-
-  //Load login params
-  login.clientId = core.getInput('client_id');
-  login.orgType = core.getInput('type');
-  login.username = core.getInput('username');
-  
-  //Load deploy params
-  deploy.defaultSourcePath = core.getInput('default_source_path');
-  deploy.defaultTestClass = core.getInput('default_test_class');
-  deploy.manifestToDeploy = core.getInput('manifest_path');
-  deploy.destructivePath = core.getInput('destructive_path');
-  deploy.dataFactory = core.getInput('data_factory');
-  deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
-  deploy.testlevel = core.getInput('deploy_testlevel');
-  
-  //Login to Org
-  sfdx.login(cert,login);
-
-  //Deply/Checkonly to Org
-  sfdx.deploy(deploy);
-  
-  //Destructive deploy
-  sfdx.destructiveDeploy(deploy);
-
-  //Executes data factory script
-  sfdx.dataFactory(deploy);
-  
-} catch (error) {
-  core.setFailed(error.message);
-}
-
-
-
-/***/ }),
-
-/***/ 807:
-/***/ (function(module) {
-
-module.exports = addHook
-
-function addHook (state, kind, name, hook) {
-  var orig = hook
-  if (!state.registry[name]) {
-    state.registry[name] = []
-  }
-
-  if (kind === 'before') {
-    hook = function (method, options) {
-      return Promise.resolve()
-        .then(orig.bind(null, options))
-        .then(method.bind(null, options))
-    }
-  }
-
-  if (kind === 'after') {
-    hook = function (method, options) {
-      var result
-      return Promise.resolve()
-        .then(method.bind(null, options))
-        .then(function (result_) {
-          result = result_
-          return orig(result, options)
-        })
-        .then(function () {
-          return result
-        })
-    }
-  }
-
-  if (kind === 'error') {
-    hook = function (method, options) {
-      return Promise.resolve()
-        .then(method.bind(null, options))
-        .catch(function (error) {
-          return orig(error, options)
-        })
-    }
-  }
-
-  state.registry[name].push({
-    hook: hook,
-    orig: orig
-  })
-}
-
-
-/***/ }),
-
-/***/ 808:
-/***/ (function(module) {
-
-var defaultOptions = {
-
-   allowDuplicateSections: false,
-
-};
-
-function simplePropertyAppender (properties, key, value) {
-
-   properties[key] = value;
-
-   return properties;
-
-}
-
-function sectionCollapsePropertyAppender (properties, key, value) {
-   var output = {};
-   var section = sectionFromPropertyName(key);
-   var existingKeys = Object.keys(properties);
-
-   // no section in property name so just append it to the list
-   if (!section || !existingKeys.length) {
-      output[key] = value;
-      return Object.assign(properties, output);
-   }
-
-   // has a section in the property name so append it in that section
-   var BEFORE = 1, DURING = 2, AFTER = 4;
-   var processing = BEFORE;
-
-   existingKeys.forEach(function (processingKey) {
-
-      var during = processing !== AFTER && processingKey.indexOf(section + '.') === 0;
-
-      if (key === processingKey) {
-         properties[processingKey] = value;
-         processing = AFTER;
-      }
-      else if (processing === BEFORE && during) {
-         // starts to be DURING
-         processing = DURING;
-      }
-      else if (processing === DURING && !during) {
-         // is now after
-         output[key] = value;
-         processing = AFTER;
-      }
-
-      output[processingKey] = properties[processingKey];
-
-   });
-
-   if (processing !== AFTER) {
-      output[key] = value;
-   }
-
-   return output;
-
-}
-
-function sectionFromPropertyName (name) {
-   var index = String(name).indexOf('.');
-   return index > 0 && name.substr(0, index) || '';
-}
-
-
-/**
- * Builder method used to create a property appending function configured to the user
- * requirements.
- */
-function propertyAppender (userOptions) {
-
-   var options = Object.assign({}, defaultOptions, userOptions || {});
-
-   if (options.allowDuplicateSections) {
-      return simplePropertyAppender;
-   }
-
-   return sectionCollapsePropertyAppender;
-
-}
-
-module.exports = {
-
-   defaultOptions: defaultOptions,
-
-   propertyAppender: propertyAppender,
-
-};
-
-
-
-/***/ }),
-
-/***/ 810:
-/***/ (function(module) {
-
-// This is not the set of all possible signals.
-//
-// It IS, however, the set of all signals that trigger
-// an exit on either Linux or BSD systems.  Linux is a
-// superset of the signal names supported on BSD, and
-// the unknown signals just fail to register, so we can
-// catch that easily enough.
-//
-// Don't bother with SIGKILL.  It's uncatchable, which
-// means that we can't fire any callbacks anyway.
-//
-// If a user does happen to register a handler on a non-
-// fatal signal like SIGWINCH or something, and then
-// exit, it'll end up firing `process.emit('exit')`, so
-// the handler will be fired anyway.
-//
-// SIGBUS, SIGFPE, SIGSEGV and SIGILL, when not raised
-// artificially, inherently leave the process in a
-// state from which it is not safe to try and enter JS
-// listeners.
-module.exports = [
-  'SIGABRT',
-  'SIGALRM',
-  'SIGHUP',
-  'SIGINT',
-  'SIGTERM'
-]
-
-if (process.platform !== 'win32') {
-  module.exports.push(
-    'SIGVTALRM',
-    'SIGXCPU',
-    'SIGXFSZ',
-    'SIGUSR2',
-    'SIGTRAP',
-    'SIGSYS',
-    'SIGQUIT',
-    'SIGIOT'
-    // should detect profiler and enable/disable accordingly.
-    // see #21
-    // 'SIGPROF'
-  )
-}
-
-if (process.platform === 'linux') {
-  module.exports.push(
-    'SIGIO',
-    'SIGPOLL',
-    'SIGPWR',
-    'SIGSTKFLT',
-    'SIGUNUSED'
-  )
-}
-
-
-/***/ }),
-
-/***/ 817:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-
-const PropertiesReader = __webpack_require__(470);
-
-module.exports = function propertiesReaderFactory (sourceFile, encoding, appender) {
-
-   return new PropertiesReader(sourceFile, encoding, appender);
-
-};
-
-
-
-/***/ }),
-
-/***/ 818:
-/***/ (function(module) {
-
-// Returns a wrapper function that returns a wrapped callback
-// The wrapper function should do some stuff, and return a
-// presumably different callback function.
-// This makes sure that own properties are retained, so that
-// decorations and such are not lost along the way.
-module.exports = wrappy
-function wrappy (fn, cb) {
-  if (fn && cb) return wrappy(fn)(cb)
-
-  if (typeof fn !== 'function')
-    throw new TypeError('need wrapper function')
-
-  Object.keys(fn).forEach(function (k) {
-    wrapper[k] = fn[k]
-  })
-
-  return wrapper
-
-  function wrapper() {
-    var args = new Array(arguments.length)
-    for (var i = 0; i < args.length; i++) {
-      args[i] = arguments[i]
-    }
-    var ret = fn.apply(this, args)
-    var cb = args[args.length-1]
-    if (typeof ret === 'function' && ret !== cb) {
-      Object.keys(cb).forEach(function (k) {
-        ret[k] = cb[k]
-      })
-    }
-    return ret
-  }
-}
-
-
-/***/ }),
-
-/***/ 825:
-/***/ (function(module) {
-
-"use strict";
-
-
-/*!
- * isobject <https://github.com/jonschlinkert/isobject>
- *
- * Copyright (c) 2014-2017, Jon Schlinkert.
- * Released under the MIT License.
- */
-
-function isObject(val) {
-  return val != null && typeof val === 'object' && Array.isArray(val) === false;
-}
-
-/*!
- * is-plain-object <https://github.com/jonschlinkert/is-plain-object>
- *
- * Copyright (c) 2014-2017, Jon Schlinkert.
- * Released under the MIT License.
- */
-
-function isObjectObject(o) {
-  return isObject(o) === true
-    && Object.prototype.toString.call(o) === '[object Object]';
-}
-
-function isPlainObject(o) {
-  var ctor,prot;
-
-  if (isObjectObject(o) === false) return false;
-
-  // If has modified constructor
-  ctor = o.constructor;
-  if (typeof ctor !== 'function') return false;
-
-  // If has modified prototype
-  prot = ctor.prototype;
-  if (isObjectObject(prot) === false) return false;
-
-  // If constructor does not have an Object-specific method
-  if (prot.hasOwnProperty('isPrototypeOf') === false) {
-    return false;
-  }
-
-  // Most likely a plain Object
-  return true;
-}
-
-module.exports = isPlainObject;
-
-
-/***/ }),
-
-/***/ 828:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var DocumentPosition, NodeType, XMLCData, XMLComment, XMLDeclaration, XMLDocType, XMLDummy, XMLElement, XMLNamedNodeMap, XMLNode, XMLNodeList, XMLProcessingInstruction, XMLRaw, XMLText, getValue, isEmpty, isFunction, isObject, ref1,
-    hasProp = {}.hasOwnProperty;
-
-  ref1 = __webpack_require__(774), isObject = ref1.isObject, isFunction = ref1.isFunction, isEmpty = ref1.isEmpty, getValue = ref1.getValue;
-
-  XMLElement = null;
-
-  XMLCData = null;
-
-  XMLComment = null;
-
-  XMLDeclaration = null;
-
-  XMLDocType = null;
-
-  XMLRaw = null;
-
-  XMLText = null;
-
-  XMLProcessingInstruction = null;
-
-  XMLDummy = null;
-
-  NodeType = null;
-
-  XMLNodeList = null;
-
-  XMLNamedNodeMap = null;
-
-  DocumentPosition = null;
-
-  module.exports = XMLNode = (function() {
-    function XMLNode(parent1) {
-      this.parent = parent1;
-      if (this.parent) {
-        this.options = this.parent.options;
-        this.stringify = this.parent.stringify;
-      }
-      this.value = null;
-      this.children = [];
-      this.baseURI = null;
-      if (!XMLElement) {
-        XMLElement = __webpack_require__(121);
-        XMLCData = __webpack_require__(151);
-        XMLComment = __webpack_require__(250);
-        XMLDeclaration = __webpack_require__(604);
-        XMLDocType = __webpack_require__(102);
-        XMLRaw = __webpack_require__(78);
-        XMLText = __webpack_require__(997);
-        XMLProcessingInstruction = __webpack_require__(193);
-        XMLDummy = __webpack_require__(319);
-        NodeType = __webpack_require__(700);
-        XMLNodeList = __webpack_require__(958);
-        XMLNamedNodeMap = __webpack_require__(589);
-        DocumentPosition = __webpack_require__(903);
-      }
-    }
-
-    Object.defineProperty(XMLNode.prototype, 'nodeName', {
-      get: function() {
-        return this.name;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'nodeType', {
-      get: function() {
-        return this.type;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'nodeValue', {
-      get: function() {
-        return this.value;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'parentNode', {
-      get: function() {
-        return this.parent;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'childNodes', {
-      get: function() {
-        if (!this.childNodeList || !this.childNodeList.nodes) {
-          this.childNodeList = new XMLNodeList(this.children);
-        }
-        return this.childNodeList;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'firstChild', {
-      get: function() {
-        return this.children[0] || null;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'lastChild', {
-      get: function() {
-        return this.children[this.children.length - 1] || null;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'previousSibling', {
-      get: function() {
-        var i;
-        i = this.parent.children.indexOf(this);
-        return this.parent.children[i - 1] || null;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'nextSibling', {
-      get: function() {
-        var i;
-        i = this.parent.children.indexOf(this);
-        return this.parent.children[i + 1] || null;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'ownerDocument', {
-      get: function() {
-        return this.document() || null;
-      }
-    });
-
-    Object.defineProperty(XMLNode.prototype, 'textContent', {
-      get: function() {
-        var child, j, len, ref2, str;
-        if (this.nodeType === NodeType.Element || this.nodeType === NodeType.DocumentFragment) {
-          str = '';
-          ref2 = this.children;
-          for (j = 0, len = ref2.length; j < len; j++) {
-            child = ref2[j];
-            if (child.textContent) {
-              str += child.textContent;
-            }
-          }
-          return str;
-        } else {
-          return null;
-        }
-      },
-      set: function(value) {
-        throw new Error("This DOM method is not implemented." + this.debugInfo());
-      }
-    });
-
-    XMLNode.prototype.setParent = function(parent) {
-      var child, j, len, ref2, results;
-      this.parent = parent;
-      if (parent) {
-        this.options = parent.options;
-        this.stringify = parent.stringify;
-      }
-      ref2 = this.children;
-      results = [];
-      for (j = 0, len = ref2.length; j < len; j++) {
-        child = ref2[j];
-        results.push(child.setParent(this));
-      }
-      return results;
-    };
-
-    XMLNode.prototype.element = function(name, attributes, text) {
-      var childNode, item, j, k, key, lastChild, len, len1, ref2, ref3, val;
-      lastChild = null;
-      if (attributes === null && (text == null)) {
-        ref2 = [{}, null], attributes = ref2[0], text = ref2[1];
-      }
-      if (attributes == null) {
-        attributes = {};
-      }
-      attributes = getValue(attributes);
-      if (!isObject(attributes)) {
-        ref3 = [attributes, text], text = ref3[0], attributes = ref3[1];
-      }
-      if (name != null) {
-        name = getValue(name);
-      }
-      if (Array.isArray(name)) {
-        for (j = 0, len = name.length; j < len; j++) {
-          item = name[j];
-          lastChild = this.element(item);
-        }
-      } else if (isFunction(name)) {
-        lastChild = this.element(name.apply());
-      } else if (isObject(name)) {
-        for (key in name) {
-          if (!hasProp.call(name, key)) continue;
-          val = name[key];
-          if (isFunction(val)) {
-            val = val.apply();
-          }
-          if (!this.options.ignoreDecorators && this.stringify.convertAttKey && key.indexOf(this.stringify.convertAttKey) === 0) {
-            lastChild = this.attribute(key.substr(this.stringify.convertAttKey.length), val);
-          } else if (!this.options.separateArrayItems && Array.isArray(val) && isEmpty(val)) {
-            lastChild = this.dummy();
-          } else if (isObject(val) && isEmpty(val)) {
-            lastChild = this.element(key);
-          } else if (!this.options.keepNullNodes && (val == null)) {
-            lastChild = this.dummy();
-          } else if (!this.options.separateArrayItems && Array.isArray(val)) {
-            for (k = 0, len1 = val.length; k < len1; k++) {
-              item = val[k];
-              childNode = {};
-              childNode[key] = item;
-              lastChild = this.element(childNode);
-            }
-          } else if (isObject(val)) {
-            if (!this.options.ignoreDecorators && this.stringify.convertTextKey && key.indexOf(this.stringify.convertTextKey) === 0) {
-              lastChild = this.element(val);
-            } else {
-              lastChild = this.element(key);
-              lastChild.element(val);
-            }
-          } else {
-            lastChild = this.element(key, val);
-          }
-        }
-      } else if (!this.options.keepNullNodes && text === null) {
-        lastChild = this.dummy();
-      } else {
-        if (!this.options.ignoreDecorators && this.stringify.convertTextKey && name.indexOf(this.stringify.convertTextKey) === 0) {
-          lastChild = this.text(text);
-        } else if (!this.options.ignoreDecorators && this.stringify.convertCDataKey && name.indexOf(this.stringify.convertCDataKey) === 0) {
-          lastChild = this.cdata(text);
-        } else if (!this.options.ignoreDecorators && this.stringify.convertCommentKey && name.indexOf(this.stringify.convertCommentKey) === 0) {
-          lastChild = this.comment(text);
-        } else if (!this.options.ignoreDecorators && this.stringify.convertRawKey && name.indexOf(this.stringify.convertRawKey) === 0) {
-          lastChild = this.raw(text);
-        } else if (!this.options.ignoreDecorators && this.stringify.convertPIKey && name.indexOf(this.stringify.convertPIKey) === 0) {
-          lastChild = this.instruction(name.substr(this.stringify.convertPIKey.length), text);
-        } else {
-          lastChild = this.node(name, attributes, text);
-        }
-      }
-      if (lastChild == null) {
-        throw new Error("Could not create any elements with: " + name + ". " + this.debugInfo());
-      }
-      return lastChild;
-    };
-
-    XMLNode.prototype.insertBefore = function(name, attributes, text) {
-      var child, i, newChild, refChild, removed;
-      if (name != null ? name.type : void 0) {
-        newChild = name;
-        refChild = attributes;
-        newChild.setParent(this);
-        if (refChild) {
-          i = children.indexOf(refChild);
-          removed = children.splice(i);
-          children.push(newChild);
-          Array.prototype.push.apply(children, removed);
-        } else {
-          children.push(newChild);
-        }
-        return newChild;
-      } else {
-        if (this.isRoot) {
-          throw new Error("Cannot insert elements at root level. " + this.debugInfo(name));
-        }
-        i = this.parent.children.indexOf(this);
-        removed = this.parent.children.splice(i);
-        child = this.parent.element(name, attributes, text);
-        Array.prototype.push.apply(this.parent.children, removed);
-        return child;
-      }
-    };
-
-    XMLNode.prototype.insertAfter = function(name, attributes, text) {
-      var child, i, removed;
-      if (this.isRoot) {
-        throw new Error("Cannot insert elements at root level. " + this.debugInfo(name));
-      }
-      i = this.parent.children.indexOf(this);
-      removed = this.parent.children.splice(i + 1);
-      child = this.parent.element(name, attributes, text);
-      Array.prototype.push.apply(this.parent.children, removed);
-      return child;
-    };
-
-    XMLNode.prototype.remove = function() {
-      var i, ref2;
-      if (this.isRoot) {
-        throw new Error("Cannot remove the root element. " + this.debugInfo());
-      }
-      i = this.parent.children.indexOf(this);
-      [].splice.apply(this.parent.children, [i, i - i + 1].concat(ref2 = [])), ref2;
-      return this.parent;
-    };
-
-    XMLNode.prototype.node = function(name, attributes, text) {
-      var child, ref2;
-      if (name != null) {
-        name = getValue(name);
-      }
-      attributes || (attributes = {});
-      attributes = getValue(attributes);
-      if (!isObject(attributes)) {
-        ref2 = [attributes, text], text = ref2[0], attributes = ref2[1];
-      }
-      child = new XMLElement(this, name, attributes);
-      if (text != null) {
-        child.text(text);
-      }
-      this.children.push(child);
-      return child;
-    };
-
-    XMLNode.prototype.text = function(value) {
-      var child;
-      if (isObject(value)) {
-        this.element(value);
-      }
-      child = new XMLText(this, value);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLNode.prototype.cdata = function(value) {
-      var child;
-      child = new XMLCData(this, value);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLNode.prototype.comment = function(value) {
-      var child;
-      child = new XMLComment(this, value);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLNode.prototype.commentBefore = function(value) {
-      var child, i, removed;
-      i = this.parent.children.indexOf(this);
-      removed = this.parent.children.splice(i);
-      child = this.parent.comment(value);
-      Array.prototype.push.apply(this.parent.children, removed);
-      return this;
-    };
-
-    XMLNode.prototype.commentAfter = function(value) {
-      var child, i, removed;
-      i = this.parent.children.indexOf(this);
-      removed = this.parent.children.splice(i + 1);
-      child = this.parent.comment(value);
-      Array.prototype.push.apply(this.parent.children, removed);
-      return this;
-    };
-
-    XMLNode.prototype.raw = function(value) {
-      var child;
-      child = new XMLRaw(this, value);
-      this.children.push(child);
-      return this;
-    };
-
-    XMLNode.prototype.dummy = function() {
-      var child;
-      child = new XMLDummy(this);
-      return child;
-    };
-
-    XMLNode.prototype.instruction = function(target, value) {
-      var insTarget, insValue, instruction, j, len;
-      if (target != null) {
-        target = getValue(target);
-      }
-      if (value != null) {
-        value = getValue(value);
-      }
-      if (Array.isArray(target)) {
-        for (j = 0, len = target.length; j < len; j++) {
-          insTarget = target[j];
-          this.instruction(insTarget);
-        }
-      } else if (isObject(target)) {
-        for (insTarget in target) {
-          if (!hasProp.call(target, insTarget)) continue;
-          insValue = target[insTarget];
-          this.instruction(insTarget, insValue);
-        }
-      } else {
-        if (isFunction(value)) {
-          value = value.apply();
-        }
-        instruction = new XMLProcessingInstruction(this, target, value);
-        this.children.push(instruction);
-      }
-      return this;
-    };
-
-    XMLNode.prototype.instructionBefore = function(target, value) {
-      var child, i, removed;
-      i = this.parent.children.indexOf(this);
-      removed = this.parent.children.splice(i);
-      child = this.parent.instruction(target, value);
-      Array.prototype.push.apply(this.parent.children, removed);
-      return this;
-    };
-
-    XMLNode.prototype.instructionAfter = function(target, value) {
-      var child, i, removed;
-      i = this.parent.children.indexOf(this);
-      removed = this.parent.children.splice(i + 1);
-      child = this.parent.instruction(target, value);
-      Array.prototype.push.apply(this.parent.children, removed);
-      return this;
-    };
-
-    XMLNode.prototype.declaration = function(version, encoding, standalone) {
-      var doc, xmldec;
-      doc = this.document();
-      xmldec = new XMLDeclaration(doc, version, encoding, standalone);
-      if (doc.children.length === 0) {
-        doc.children.unshift(xmldec);
-      } else if (doc.children[0].type === NodeType.Declaration) {
-        doc.children[0] = xmldec;
-      } else {
-        doc.children.unshift(xmldec);
-      }
-      return doc.root() || doc;
-    };
-
-    XMLNode.prototype.dtd = function(pubID, sysID) {
-      var child, doc, doctype, i, j, k, len, len1, ref2, ref3;
-      doc = this.document();
-      doctype = new XMLDocType(doc, pubID, sysID);
-      ref2 = doc.children;
-      for (i = j = 0, len = ref2.length; j < len; i = ++j) {
-        child = ref2[i];
-        if (child.type === NodeType.DocType) {
-          doc.children[i] = doctype;
-          return doctype;
-        }
-      }
-      ref3 = doc.children;
-      for (i = k = 0, len1 = ref3.length; k < len1; i = ++k) {
-        child = ref3[i];
-        if (child.isRoot) {
-          doc.children.splice(i, 0, doctype);
-          return doctype;
-        }
-      }
-      doc.children.push(doctype);
-      return doctype;
-    };
-
-    XMLNode.prototype.up = function() {
-      if (this.isRoot) {
-        throw new Error("The root node has no parent. Use doc() if you need to get the document object.");
-      }
-      return this.parent;
-    };
-
-    XMLNode.prototype.root = function() {
-      var node;
-      node = this;
-      while (node) {
-        if (node.type === NodeType.Document) {
-          return node.rootObject;
-        } else if (node.isRoot) {
-          return node;
-        } else {
-          node = node.parent;
-        }
-      }
-    };
-
-    XMLNode.prototype.document = function() {
-      var node;
-      node = this;
-      while (node) {
-        if (node.type === NodeType.Document) {
-          return node;
-        } else {
-          node = node.parent;
-        }
-      }
-    };
-
-    XMLNode.prototype.end = function(options) {
-      return this.document().end(options);
-    };
-
-    XMLNode.prototype.prev = function() {
-      var i;
-      i = this.parent.children.indexOf(this);
-      if (i < 1) {
-        throw new Error("Already at the first node. " + this.debugInfo());
-      }
-      return this.parent.children[i - 1];
-    };
-
-    XMLNode.prototype.next = function() {
-      var i;
-      i = this.parent.children.indexOf(this);
-      if (i === -1 || i === this.parent.children.length - 1) {
-        throw new Error("Already at the last node. " + this.debugInfo());
-      }
-      return this.parent.children[i + 1];
-    };
-
-    XMLNode.prototype.importDocument = function(doc) {
-      var clonedRoot;
-      clonedRoot = doc.root().clone();
-      clonedRoot.parent = this;
-      clonedRoot.isRoot = false;
-      this.children.push(clonedRoot);
-      return this;
-    };
-
-    XMLNode.prototype.debugInfo = function(name) {
-      var ref2, ref3;
-      name = name || this.name;
-      if ((name == null) && !((ref2 = this.parent) != null ? ref2.name : void 0)) {
-        return "";
-      } else if (name == null) {
-        return "parent: <" + this.parent.name + ">";
-      } else if (!((ref3 = this.parent) != null ? ref3.name : void 0)) {
-        return "node: <" + name + ">";
-      } else {
-        return "node: <" + name + ">, parent: <" + this.parent.name + ">";
-      }
-    };
-
-    XMLNode.prototype.ele = function(name, attributes, text) {
-      return this.element(name, attributes, text);
-    };
-
-    XMLNode.prototype.nod = function(name, attributes, text) {
-      return this.node(name, attributes, text);
-    };
-
-    XMLNode.prototype.txt = function(value) {
-      return this.text(value);
-    };
-
-    XMLNode.prototype.dat = function(value) {
-      return this.cdata(value);
-    };
-
-    XMLNode.prototype.com = function(value) {
-      return this.comment(value);
-    };
-
-    XMLNode.prototype.ins = function(target, value) {
-      return this.instruction(target, value);
-    };
-
-    XMLNode.prototype.doc = function() {
-      return this.document();
-    };
-
-    XMLNode.prototype.dec = function(version, encoding, standalone) {
-      return this.declaration(version, encoding, standalone);
-    };
-
-    XMLNode.prototype.e = function(name, attributes, text) {
-      return this.element(name, attributes, text);
-    };
-
-    XMLNode.prototype.n = function(name, attributes, text) {
-      return this.node(name, attributes, text);
-    };
-
-    XMLNode.prototype.t = function(value) {
-      return this.text(value);
-    };
-
-    XMLNode.prototype.d = function(value) {
-      return this.cdata(value);
-    };
-
-    XMLNode.prototype.c = function(value) {
-      return this.comment(value);
-    };
-
-    XMLNode.prototype.r = function(value) {
-      return this.raw(value);
-    };
-
-    XMLNode.prototype.i = function(target, value) {
-      return this.instruction(target, value);
-    };
-
-    XMLNode.prototype.u = function() {
-      return this.up();
-    };
-
-    XMLNode.prototype.importXMLBuilder = function(doc) {
-      return this.importDocument(doc);
-    };
-
-    XMLNode.prototype.replaceChild = function(newChild, oldChild) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.removeChild = function(oldChild) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.appendChild = function(newChild) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.hasChildNodes = function() {
-      return this.children.length !== 0;
-    };
-
-    XMLNode.prototype.cloneNode = function(deep) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.normalize = function() {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.isSupported = function(feature, version) {
-      return true;
-    };
-
-    XMLNode.prototype.hasAttributes = function() {
-      return this.attribs.length !== 0;
-    };
-
-    XMLNode.prototype.compareDocumentPosition = function(other) {
-      var ref, res;
-      ref = this;
-      if (ref === other) {
-        return 0;
-      } else if (this.document() !== other.document()) {
-        res = DocumentPosition.Disconnected | DocumentPosition.ImplementationSpecific;
-        if (Math.random() < 0.5) {
-          res |= DocumentPosition.Preceding;
-        } else {
-          res |= DocumentPosition.Following;
-        }
-        return res;
-      } else if (ref.isAncestor(other)) {
-        return DocumentPosition.Contains | DocumentPosition.Preceding;
-      } else if (ref.isDescendant(other)) {
-        return DocumentPosition.Contains | DocumentPosition.Following;
-      } else if (ref.isPreceding(other)) {
-        return DocumentPosition.Preceding;
-      } else {
-        return DocumentPosition.Following;
-      }
-    };
-
-    XMLNode.prototype.isSameNode = function(other) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.lookupPrefix = function(namespaceURI) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.isDefaultNamespace = function(namespaceURI) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.lookupNamespaceURI = function(prefix) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.isEqualNode = function(node) {
-      var i, j, ref2;
-      if (node.nodeType !== this.nodeType) {
-        return false;
-      }
-      if (node.children.length !== this.children.length) {
-        return false;
-      }
-      for (i = j = 0, ref2 = this.children.length - 1; 0 <= ref2 ? j <= ref2 : j >= ref2; i = 0 <= ref2 ? ++j : --j) {
-        if (!this.children[i].isEqualNode(node.children[i])) {
-          return false;
-        }
-      }
-      return true;
-    };
-
-    XMLNode.prototype.getFeature = function(feature, version) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.setUserData = function(key, data, handler) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.getUserData = function(key) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLNode.prototype.contains = function(other) {
-      if (!other) {
-        return false;
-      }
-      return other === this || this.isDescendant(other);
-    };
-
-    XMLNode.prototype.isDescendant = function(node) {
-      var child, isDescendantChild, j, len, ref2;
-      ref2 = this.children;
-      for (j = 0, len = ref2.length; j < len; j++) {
-        child = ref2[j];
-        if (node === child) {
-          return true;
-        }
-        isDescendantChild = child.isDescendant(node);
-        if (isDescendantChild) {
-          return true;
-        }
-      }
-      return false;
-    };
-
-    XMLNode.prototype.isAncestor = function(node) {
-      return node.isDescendant(this);
-    };
-
-    XMLNode.prototype.isPreceding = function(node) {
-      var nodePos, thisPos;
-      nodePos = this.treePosition(node);
-      thisPos = this.treePosition(this);
-      if (nodePos === -1 || thisPos === -1) {
-        return false;
-      } else {
-        return nodePos < thisPos;
-      }
-    };
-
-    XMLNode.prototype.isFollowing = function(node) {
-      var nodePos, thisPos;
-      nodePos = this.treePosition(node);
-      thisPos = this.treePosition(this);
-      if (nodePos === -1 || thisPos === -1) {
-        return false;
-      } else {
-        return nodePos > thisPos;
-      }
-    };
-
-    XMLNode.prototype.treePosition = function(node) {
-      var found, pos;
-      pos = 0;
-      found = false;
-      this.foreachTreeNode(this.document(), function(childNode) {
-        pos++;
-        if (!found && childNode === node) {
-          return found = true;
-        }
-      });
-      if (found) {
-        return pos;
-      } else {
-        return -1;
-      }
-    };
-
-    XMLNode.prototype.foreachTreeNode = function(node, func) {
-      var child, j, len, ref2, res;
-      node || (node = this.document());
-      ref2 = node.children;
-      for (j = 0, len = ref2.length; j < len; j++) {
-        child = ref2[j];
-        if (res = func(child)) {
-          return res;
-        } else {
-          res = this.foreachTreeNode(child, func);
-          if (res) {
-            return res;
-          }
-        }
-      }
-    };
-
-    return XMLNode;
-
-  })();
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 835:
-/***/ (function(module) {
-
-module.exports = require("url");
-
-/***/ }),
-
-/***/ 848:
-/***/ (function(__unusedmodule, exports) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  "use strict";
-  exports.stripBOM = function(str) {
-    if (str[0] === '\uFEFF') {
-      return str.substring(1);
-    } else {
-      return str;
-    }
-  };
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 878:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-"use strict";
-
-
-const cp = __webpack_require__(129);
-const parse = __webpack_require__(203);
-const enoent = __webpack_require__(503);
-
-function spawn(command, args, options) {
-    // Parse the arguments
-    const parsed = parse(command, args, options);
-
-    // Spawn the child process
-    const spawned = cp.spawn(parsed.command, parsed.args, parsed.options);
-
-    // Hook into child process "exit" event to emit an error if the command
-    // does not exists, see: https://github.com/IndigoUnited/node-cross-spawn/issues/16
-    enoent.hookChildProcess(spawned, parsed);
-
-    return spawned;
-}
-
-function spawnSync(command, args, options) {
-    // Parse the arguments
-    const parsed = parse(command, args, options);
-
-    // Spawn the child process
-    const result = cp.spawnSync(parsed.command, parsed.args, parsed.options);
-
-    // Analyze if the command does not exist, see: https://github.com/IndigoUnited/node-cross-spawn/issues/16
-    result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
-
-    return result;
-}
-
-module.exports = spawn;
-module.exports.spawn = spawn;
-module.exports.sync = spawnSync;
-
-module.exports._parse = parse;
-module.exports._enoent = enoent;
-
-
-/***/ }),
-
-/***/ 883:
-/***/ (function(module) {
-
-"use strict";
-
-
-var isStream = module.exports = function (stream) {
-	return stream !== null && typeof stream === 'object' && typeof stream.pipe === 'function';
-};
-
-isStream.writable = function (stream) {
-	return isStream(stream) && stream.writable !== false && typeof stream._write === 'function' && typeof stream._writableState === 'object';
-};
-
-isStream.readable = function (stream) {
-	return isStream(stream) && stream.readable !== false && typeof stream._read === 'function' && typeof stream._readableState === 'object';
-};
-
-isStream.duplex = function (stream) {
-	return isStream.writable(stream) && isStream.readable(stream);
-};
-
-isStream.transform = function (stream) {
-	return isStream.duplex(stream) && typeof stream._transform === 'function' && typeof stream._transformState === 'object';
-};
-
-
-/***/ }),
-
-/***/ 903:
-/***/ (function(module) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  module.exports = {
-    Disconnected: 1,
-    Preceding: 2,
-    Following: 4,
-    Contains: 8,
-    ContainedBy: 16,
-    ImplementationSpecific: 32
-  };
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 911:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, '__esModule', { value: true });
-
-var request = __webpack_require__(339);
-var universalUserAgent = __webpack_require__(922);
-
-const VERSION = "4.5.1";
-
-class GraphqlError extends Error {
-  constructor(request, response) {
-    const message = response.data.errors[0].message;
-    super(message);
-    Object.assign(this, response.data);
-    this.name = "GraphqlError";
-    this.request = request; // Maintains proper stack trace (only available on V8)
-
-    /* istanbul ignore next */
-
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, this.constructor);
-    }
-  }
-
-}
-
-const NON_VARIABLE_OPTIONS = ["method", "baseUrl", "url", "headers", "request", "query", "mediaType"];
-function graphql(request, query, options) {
-  options = typeof query === "string" ? options = Object.assign({
-    query
-  }, options) : options = query;
-  const requestOptions = Object.keys(options).reduce((result, key) => {
-    if (NON_VARIABLE_OPTIONS.includes(key)) {
-      result[key] = options[key];
-      return result;
-    }
-
-    if (!result.variables) {
-      result.variables = {};
-    }
-
-    result.variables[key] = options[key];
-    return result;
-  }, {});
-  return request(requestOptions).then(response => {
-    if (response.data.errors) {
-      throw new GraphqlError(requestOptions, {
-        data: response.data
-      });
-    }
-
-    return response.data.data;
-  });
-}
-
-function withDefaults(request$1, newDefaults) {
-  const newRequest = request$1.defaults(newDefaults);
-
-  const newApi = (query, options) => {
-    return graphql(newRequest, query, options);
-  };
-
-  return Object.assign(newApi, {
-    defaults: withDefaults.bind(null, newRequest),
-    endpoint: request.request.endpoint
-  });
-}
-
-const graphql$1 = withDefaults(request.request, {
-  headers: {
-    "user-agent": `octokit-graphql.js/${VERSION} ${universalUserAgent.getUserAgent()}`
-  },
-  method: "POST",
-  url: "/graphql"
-});
-function withCustomRequest(customRequest) {
-  return withDefaults(customRequest, {
-    method: "POST",
-    url: "/graphql"
-  });
-}
-
-exports.graphql = graphql$1;
-exports.withCustomRequest = withCustomRequest;
-//# sourceMappingURL=index.js.map
-
-
-/***/ }),
-
-/***/ 922:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-
-Object.defineProperty(exports, '__esModule', { value: true });
-
-function _interopDefault (ex) { return (ex && (typeof ex === 'object') && 'default' in ex) ? ex['default'] : ex; }
-
-var osName = _interopDefault(__webpack_require__(451));
-
-function getUserAgent() {
-  try {
-    return `Node.js/${process.version.substr(1)} (${osName()}; ${process.arch})`;
-  } catch (error) {
-    if (/wmic os get Caption/.test(error.message)) {
-      return "Windows <version undetectable>";
-    }
-
-    return "<environment undetectable>";
-  }
-}
-
-exports.getUserAgent = getUserAgent;
-//# sourceMappingURL=index.js.map
-
-
-/***/ }),
-
-/***/ 930:
-/***/ (function(module) {
-
-"use strict";
-
-
-/**
- * Tries to execute a function and discards any error that occurs.
- * @param {Function} fn - Function that might or might not throw an error.
- * @returns {?*} Return-value of the function when no error occurred.
- */
-module.exports = function(fn) {
-
-	try { return fn() } catch (e) {}
-
-}
-
-/***/ }),
-
-/***/ 944:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-var path = __webpack_require__(622);
-var fs = __webpack_require__(747);
-var _0777 = parseInt('0777', 8);
-
-module.exports = mkdirP.mkdirp = mkdirP.mkdirP = mkdirP;
-
-function mkdirP (p, opts, f, made) {
-    if (typeof opts === 'function') {
-        f = opts;
-        opts = {};
-    }
-    else if (!opts || typeof opts !== 'object') {
-        opts = { mode: opts };
-    }
-    
-    var mode = opts.mode;
-    var xfs = opts.fs || fs;
-    
-    if (mode === undefined) {
-        mode = _0777
-    }
-    if (!made) made = null;
-    
-    var cb = f || function () {};
-    p = path.resolve(p);
-    
-    xfs.mkdir(p, mode, function (er) {
-        if (!er) {
-            made = made || p;
-            return cb(null, made);
-        }
-        switch (er.code) {
-            case 'ENOENT':
-                if (path.dirname(p) === p) return cb(er);
-                mkdirP(path.dirname(p), opts, function (er, made) {
-                    if (er) cb(er, made);
-                    else mkdirP(p, opts, cb, made);
-                });
-                break;
-
-            // In the case of any other error, just see if there's a dir
-            // there already.  If so, then hooray!  If not, then something
-            // is borked.
-            default:
-                xfs.stat(p, function (er2, stat) {
-                    // if the stat fails, then that's super weird.
-                    // let the original error be the failure reason.
-                    if (er2 || !stat.isDirectory()) cb(er, made)
-                    else cb(null, made);
-                });
-                break;
-        }
-    });
-}
-
-mkdirP.sync = function sync (p, opts, made) {
-    if (!opts || typeof opts !== 'object') {
-        opts = { mode: opts };
-    }
-    
-    var mode = opts.mode;
-    var xfs = opts.fs || fs;
-    
-    if (mode === undefined) {
-        mode = _0777
-    }
-    if (!made) made = null;
-
-    p = path.resolve(p);
-
-    try {
-        xfs.mkdirSync(p, mode);
-        made = made || p;
-    }
-    catch (err0) {
-        switch (err0.code) {
-            case 'ENOENT' :
-                made = sync(path.dirname(p), opts, made);
-                sync(p, opts, made);
-                break;
-
-            // In the case of any other error, just see if there's a dir
-            // there already.  If so, then hooray!  If not, then something
-            // is borked.
-            default:
-                var stat;
-                try {
-                    stat = xfs.statSync(p);
-                }
-                catch (err1) {
-                    throw err0;
-                }
-                if (!stat.isDirectory()) throw err0;
-                break;
-        }
-    }
-
-    return made;
-};
-
-
-/***/ }),
-
-/***/ 947:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-const core = __webpack_require__(357)
-const execCommand = __webpack_require__(61);
-
-var fnInstallSFDX = function(){
-    core.info('=== Downloading and installing SFDX cli ===');
-    execCommand.run('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-linux-amd64.tar.xz']);
-    execCommand.run('mkdir', ['-p', 'sfdx-cli']);
-    execCommand.run('tar', ['xJf', 'sfdx-linux-amd64.tar.xz', '-C', 'sfdx-cli', '--strip-components', '1']);
-    execCommand.run('./sfdx-cli/install', []);
-    core.info('=== SFDX cli installed ===');
-};
-
-module.exports.install = function(command, args) {
-    //Installs Salesforce DX CLI
-    fnInstallSFDX(); 
-
-};
-
-
-/***/ }),
-
-/***/ 953:
-/***/ (function(module) {
-
-"use strict";
-
-
-// See http://www.robvanderwoude.com/escapechars.php
-const metaCharsRegExp = /([()\][%!^"`<>&|;, *?])/g;
-
-function escapeCommand(arg) {
-    // Escape meta chars
-    arg = arg.replace(metaCharsRegExp, '^$1');
-
-    return arg;
-}
-
-function escapeArgument(arg, doubleEscapeMetaChars) {
-    // Convert to string
-    arg = `${arg}`;
-
-    // Algorithm below is based on https://qntm.org/cmd
-
-    // Sequence of backslashes followed by a double quote:
-    // double up all the backslashes and escape the double quote
-    arg = arg.replace(/(\\*)"/g, '$1$1\\"');
-
-    // Sequence of backslashes followed by the end of the string
-    // (which will become a double quote later):
-    // double up all the backslashes
-    arg = arg.replace(/(\\*)$/, '$1$1');
-
-    // All other backslashes occur literally
-
-    // Quote the whole thing:
-    arg = `"${arg}"`;
-
-    // Escape meta chars
-    arg = arg.replace(metaCharsRegExp, '^$1');
-
-    // Double escape meta chars if necessary
-    if (doubleEscapeMetaChars) {
-        arg = arg.replace(metaCharsRegExp, '^$1');
-    }
-
-    return arg;
-}
-
-module.exports.command = escapeCommand;
-module.exports.argument = escapeArgument;
-
-
-/***/ }),
-
-/***/ 955:
-/***/ (function(__unusedmodule, exports, __webpack_require__) {
-
-"use strict";
-
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || function (mod) {
-    if (mod && mod.__esModule) return mod;
-    var result = {};
-    if (mod != null) for (var k in mod) if (Object.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
-    __setModuleDefault(result, mod);
-    return result;
-};
-Object.defineProperty(exports, "__esModule", { value: true });
-exports.getOctokit = exports.context = void 0;
-const Context = __importStar(__webpack_require__(433));
-const utils_1 = __webpack_require__(638);
-exports.context = new Context.Context();
-/**
- * Returns a hydrated octokit ready to use for GitHub Actions
- *
- * @param     token    the repo PAT or GITHUB_TOKEN
- * @param     options  other options to set
- */
-function getOctokit(token, options) {
-    return new utils_1.GitHub(utils_1.getOctokitOptions(token, options));
-}
-exports.getOctokit = getOctokit;
-//# sourceMappingURL=github.js.map
-
-/***/ }),
-
-/***/ 958:
-/***/ (function(module) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var XMLNodeList;
-
-  module.exports = XMLNodeList = (function() {
-    function XMLNodeList(nodes) {
-      this.nodes = nodes;
-    }
-
-    Object.defineProperty(XMLNodeList.prototype, 'length', {
-      get: function() {
-        return this.nodes.length || 0;
-      }
-    });
-
-    XMLNodeList.prototype.clone = function() {
-      return this.nodes = null;
-    };
-
-    XMLNodeList.prototype.item = function(index) {
-      return this.nodes[index] || null;
-    };
-
-    return XMLNodeList;
-
-  })();
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 982:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var XMLStringWriter, XMLWriterBase,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  XMLWriterBase = __webpack_require__(581);
-
-  module.exports = XMLStringWriter = (function(superClass) {
-    extend(XMLStringWriter, superClass);
-
-    function XMLStringWriter(options) {
-      XMLStringWriter.__super__.constructor.call(this, options);
-    }
-
-    XMLStringWriter.prototype.document = function(doc, options) {
-      var child, i, len, r, ref;
-      options = this.filterOptions(options);
-      r = '';
-      ref = doc.children;
-      for (i = 0, len = ref.length; i < len; i++) {
-        child = ref[i];
-        r += this.writeChildNode(child, options, 0);
-      }
-      if (options.pretty && r.slice(-options.newline.length) === options.newline) {
-        r = r.slice(0, -options.newline.length);
-      }
-      return r;
-    };
-
-    return XMLStringWriter;
-
-  })(XMLWriterBase);
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 987:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, WriterState, XMLStreamWriter, XMLWriterBase,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  NodeType = __webpack_require__(700);
-
-  XMLWriterBase = __webpack_require__(581);
-
-  WriterState = __webpack_require__(46);
-
-  module.exports = XMLStreamWriter = (function(superClass) {
-    extend(XMLStreamWriter, superClass);
-
-    function XMLStreamWriter(stream, options) {
-      this.stream = stream;
-      XMLStreamWriter.__super__.constructor.call(this, options);
-    }
-
-    XMLStreamWriter.prototype.endline = function(node, options, level) {
-      if (node.isLastRootNode && options.state === WriterState.CloseTag) {
-        return '';
-      } else {
-        return XMLStreamWriter.__super__.endline.call(this, node, options, level);
-      }
-    };
-
-    XMLStreamWriter.prototype.document = function(doc, options) {
-      var child, i, j, k, len, len1, ref, ref1, results;
-      ref = doc.children;
-      for (i = j = 0, len = ref.length; j < len; i = ++j) {
-        child = ref[i];
-        child.isLastRootNode = i === doc.children.length - 1;
-      }
-      options = this.filterOptions(options);
-      ref1 = doc.children;
-      results = [];
-      for (k = 0, len1 = ref1.length; k < len1; k++) {
-        child = ref1[k];
-        results.push(this.writeChildNode(child, options, 0));
-      }
-      return results;
-    };
-
-    XMLStreamWriter.prototype.attribute = function(att, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.attribute.call(this, att, options, level));
-    };
-
-    XMLStreamWriter.prototype.cdata = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.cdata.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.comment = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.comment.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.declaration = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.declaration.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.docType = function(node, options, level) {
-      var child, j, len, ref;
-      level || (level = 0);
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      this.stream.write(this.indent(node, options, level));
-      this.stream.write('<!DOCTYPE ' + node.root().name);
-      if (node.pubID && node.sysID) {
-        this.stream.write(' PUBLIC "' + node.pubID + '" "' + node.sysID + '"');
-      } else if (node.sysID) {
-        this.stream.write(' SYSTEM "' + node.sysID + '"');
-      }
-      if (node.children.length > 0) {
-        this.stream.write(' [');
-        this.stream.write(this.endline(node, options, level));
-        options.state = WriterState.InsideTag;
-        ref = node.children;
-        for (j = 0, len = ref.length; j < len; j++) {
-          child = ref[j];
-          this.writeChildNode(child, options, level + 1);
-        }
-        options.state = WriterState.CloseTag;
-        this.stream.write(']');
-      }
-      options.state = WriterState.CloseTag;
-      this.stream.write(options.spaceBeforeSlash + '>');
-      this.stream.write(this.endline(node, options, level));
-      options.state = WriterState.None;
-      return this.closeNode(node, options, level);
-    };
-
-    XMLStreamWriter.prototype.element = function(node, options, level) {
-      var att, child, childNodeCount, firstChildNode, j, len, name, prettySuppressed, ref, ref1;
-      level || (level = 0);
-      this.openNode(node, options, level);
-      options.state = WriterState.OpenTag;
-      this.stream.write(this.indent(node, options, level) + '<' + node.name);
-      ref = node.attribs;
-      for (name in ref) {
-        if (!hasProp.call(ref, name)) continue;
-        att = ref[name];
-        this.attribute(att, options, level);
-      }
-      childNodeCount = node.children.length;
-      firstChildNode = childNodeCount === 0 ? null : node.children[0];
-      if (childNodeCount === 0 || node.children.every(function(e) {
-        return (e.type === NodeType.Text || e.type === NodeType.Raw) && e.value === '';
-      })) {
-        if (options.allowEmpty) {
-          this.stream.write('>');
-          options.state = WriterState.CloseTag;
-          this.stream.write('</' + node.name + '>');
-        } else {
-          options.state = WriterState.CloseTag;
-          this.stream.write(options.spaceBeforeSlash + '/>');
-        }
-      } else if (options.pretty && childNodeCount === 1 && (firstChildNode.type === NodeType.Text || firstChildNode.type === NodeType.Raw) && (firstChildNode.value != null)) {
-        this.stream.write('>');
-        options.state = WriterState.InsideTag;
-        options.suppressPrettyCount++;
-        prettySuppressed = true;
-        this.writeChildNode(firstChildNode, options, level + 1);
-        options.suppressPrettyCount--;
-        prettySuppressed = false;
-        options.state = WriterState.CloseTag;
-        this.stream.write('</' + node.name + '>');
-      } else {
-        this.stream.write('>' + this.endline(node, options, level));
-        options.state = WriterState.InsideTag;
-        ref1 = node.children;
-        for (j = 0, len = ref1.length; j < len; j++) {
-          child = ref1[j];
-          this.writeChildNode(child, options, level + 1);
-        }
-        options.state = WriterState.CloseTag;
-        this.stream.write(this.indent(node, options, level) + '</' + node.name + '>');
-      }
-      this.stream.write(this.endline(node, options, level));
-      options.state = WriterState.None;
-      return this.closeNode(node, options, level);
-    };
-
-    XMLStreamWriter.prototype.processingInstruction = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.processingInstruction.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.raw = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.raw.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.text = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.text.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.dtdAttList = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.dtdAttList.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.dtdElement = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.dtdElement.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.dtdEntity = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.dtdEntity.call(this, node, options, level));
-    };
-
-    XMLStreamWriter.prototype.dtdNotation = function(node, options, level) {
-      return this.stream.write(XMLStreamWriter.__super__.dtdNotation.call(this, node, options, level));
-    };
-
-    return XMLStreamWriter;
-
-  })(XMLWriterBase);
-
-}).call(this);
-
-
-/***/ }),
-
-/***/ 997:
-/***/ (function(module, __unusedexports, __webpack_require__) {
-
-// Generated by CoffeeScript 1.12.7
-(function() {
-  var NodeType, XMLCharacterData, XMLText,
-    extend = function(child, parent) { for (var key in parent) { if (hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
-    hasProp = {}.hasOwnProperty;
-
-  NodeType = __webpack_require__(700);
-
-  XMLCharacterData = __webpack_require__(55);
-
-  module.exports = XMLText = (function(superClass) {
-    extend(XMLText, superClass);
-
-    function XMLText(parent, text) {
-      XMLText.__super__.constructor.call(this, parent);
-      if (text == null) {
-        throw new Error("Missing element text. " + this.debugInfo());
-      }
-      this.name = "#text";
-      this.type = NodeType.Text;
-      this.value = this.stringify.text(text);
-    }
-
-    Object.defineProperty(XMLText.prototype, 'isElementContentWhitespace', {
-      get: function() {
-        throw new Error("This DOM method is not implemented." + this.debugInfo());
-      }
-    });
-
-    Object.defineProperty(XMLText.prototype, 'wholeText', {
-      get: function() {
-        var next, prev, str;
-        str = '';
-        prev = this.previousSibling;
-        while (prev) {
-          str = prev.data + str;
-          prev = prev.previousSibling;
-        }
-        str += this.data;
-        next = this.nextSibling;
-        while (next) {
-          str = str + next.data;
-          next = next.nextSibling;
-        }
-        return str;
-      }
-    });
-
-    XMLText.prototype.clone = function() {
-      return Object.create(this);
-    };
-
-    XMLText.prototype.toString = function(options) {
-      return this.options.writer.text(this, this.options.writer.filterOptions(options));
-    };
-
-    XMLText.prototype.splitText = function(offset) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    XMLText.prototype.replaceWholeText = function(content) {
-      throw new Error("This DOM method is not implemented." + this.debugInfo());
-    };
-
-    return XMLText;
-
-  })(XMLCharacterData);
-
-}).call(this);
 
 
 /***/ })
