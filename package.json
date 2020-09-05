@@ -20,9 +20,9 @@
     "SFDX",
     "Org Development Model"
   ],
-  "author": "Tiago Nascimento<tnascimento@salesforce.com>",
+  "author": "Tiago Nascimento <tnascimento@salesforce.com>",
   "contributors": [
-    "Manuel Cortes<manuel.cortes@salesforce.com>"
+    "Manuel Cortes <manuel.cortes@salesforce.com>"
   ],
   "license": "MIT",
   "bugs": {
@@ -32,8 +32,9 @@
   "dependencies": {
     "@actions/core": "^1.2.4",
     "@actions/github": "^4.0.0",
-    "xml2js": "^0.4.23",
-    "properties-reader": "^2.0.0"
+    "@vercel/ncc": "^0.24.0",
+    "properties-reader": "^2.0.0",
+    "xml2js": "^0.4.23"
   },
   "devDependencies": {
     "@zeit/ncc": "^0.20.5",

@@ -14,18 +14,6 @@ try {
   var cert = {};
   var login = {};
   var deploy = {};
-  var propertiesPath = core.getInput('properties_file');
-  var properties = {};
-
-  //Load properties
-  if(propertiesPath){
-    core.info("Loading properties file: " + propertiesPath);
-    properties = propertiesReader(propertiesPath);
-  }else{
-    //Simulate load properties
-    properties.get = function(){return null};
-    core.info("There is not properites file to load.");
-  }
 
   //Install dependecies  
   dependencies.install();
