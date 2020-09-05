@@ -32,12 +32,11 @@
   "dependencies": {
     "@actions/core": "^1.2.4",
     "@actions/github": "^4.0.0",
-    "@vercel/ncc": "^0.24.0",
     "properties-reader": "^2.0.0",
     "xml2js": "^0.4.23"
   },
   "devDependencies": {
-    "@zeit/ncc": "^0.20.5",
+    "@vercel/ncc": "^0.24.0",
     "eslint": "^6.3.0",
     "jest": "^24.9.0"
   }
