@@ -36,6 +36,7 @@ try {
   deploy.dataFactory = core.getInput('data_factory');
   deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
   deploy.testlevel = core.getInput('deploy_testlevel');
+  deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
   
   //Login to Org
   sfdx.login(cert,login);
