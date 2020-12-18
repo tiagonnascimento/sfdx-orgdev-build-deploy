@@ -41,6 +41,11 @@ inputs:
         required: true
         default: RunLocalTests
 
+    deploy_wait_time:
+        description: 'Wait time for deployment to finish in minutes. Default is 60'
+        required: false
+        default: '60'
+
     destructive_path:
         description: 'Path for the destructive changes directory'
         required: false
