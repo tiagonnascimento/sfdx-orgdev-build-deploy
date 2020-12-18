@@ -30,7 +30,7 @@
   },
   "homepage": "https://github.com/tiagonnascimento/sfdx-orgdev-build-deploy#readme",
   "dependencies": {
-    "@actions/core": "^1.2.4",
+    "@actions/core": "^1.2.6",
     "@actions/github": "^4.0.0",
     "properties-reader": "^2.0.0",
     "xml2js": "^0.4.23"
