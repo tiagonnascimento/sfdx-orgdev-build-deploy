@@ -43,7 +43,7 @@ inputs:
 
     deploy_wait_time:
         description: 'Wait time for deployment to finish in minutes. Default is 60'
-        required: true
+        required: false
         default: '60'
 
     destructive_path:
