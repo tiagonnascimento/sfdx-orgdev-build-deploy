@@ -54,6 +54,11 @@ inputs:
         description: 'Path on the current repository to the apex script that will be used to create data required by the package'
         required: false
 
+    default_source_path:
+        description: 'Default source path to look for apex classes. Only used when deploy_testlevel is RunSpecifiedTests'
+        required: false
+        default: 'force-app/main/default'
+
 runs:
     using: 'node12'
     main: 'dist/index.js'
