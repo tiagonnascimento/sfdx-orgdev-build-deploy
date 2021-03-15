@@ -61,6 +61,7 @@ jobs:
                 manifest_path: manifest/package-01.xml,manifest/package-02.xml,manifest/package-03.xml
                 destructive_path: destructive
                 data_factory: scripts/apex/CreateBaseData.apex
+                default_source_path: force-app/main/default
 ```
 
 ### Inputs:
@@ -78,6 +79,7 @@ jobs:
 | `deploy_wait_time`    | _optional_  | Wait time for deployment to finish in minutes. Default is `60` |
 | `destructive_path`    | _optional_  | Path on the repo where the destructive changes directory is - if not informed, it's not executed |
 | `data_factory`        | _optional_  | Path on the repo where an APEX script used as a data factory is stored. if not informed, it's not executed |
+| `default_source_path` | _optional_  | Path on the repo where your source files are stored, for SFDX project this is normally `force-app/main/default`
 
 
 # Note for destructives changes.
