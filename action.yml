@@ -13,11 +13,11 @@ inputs:
 
     decryption_key:
         description: 'Decryption key to be used to decrypt the certificate'
-        required: true
+        required: false
     
     decryption_iv:
         description: 'Decryption IV to be used to decrypt the certificate'
-        required: true
+        required: false
     
     client_id:  
         description: 'Client ID / Consumer Key of a connected app to the target destination'
