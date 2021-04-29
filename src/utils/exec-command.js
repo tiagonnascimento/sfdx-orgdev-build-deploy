@@ -8,7 +8,7 @@ module.exports.run = function(command, args, workingFolder = null) {
     //extraParams.env = process.env;
     //extraParams.stdio = [process.stdin, process.stdout , process.stderr];
     if (workingFolder) {
-        extraParams.cwd = process.cwd();
+        extraParams.cwd = workingFolder;
     }
     extraParams.encoding = 'utf-8';
     extraParams.maxBuffer = 1024 * 1024 * 10

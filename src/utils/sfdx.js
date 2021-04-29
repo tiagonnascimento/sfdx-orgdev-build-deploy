@@ -71,9 +71,9 @@ let deploy = function (deploy){
         }
 
         if(deploy.testlevel == "RunSpecifiedTests"){
-            testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
+            testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath + '/classes', deploy.defaultTestClass);
 
-            core.info("las clases son : "  + testClassesTmp);
+            core.info("classes are : "  + testClassesTmp);
             
             if(testClassesTmp){
                 argsDeploy.push("--testlevel");
