@@ -13208,6 +13208,7 @@ try {
   deploy.defaultSourcePath = core.getInput('default_source_path');
   deploy.defaultTestClass = core.getInput('default_test_class');
   deploy.manifestToDeploy = core.getInput('manifest_path');
+  deploy.sfdxRootFolder = core.getInput('sfdx_root_folder');
   deploy.destructivePath = core.getInput('destructive_path');
   deploy.dataFactory = core.getInput('data_factory');
   deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
@@ -13240,13 +13241,15 @@ try {
 const core = __webpack_require__(2186)
 const { spawnSync } = __webpack_require__(3129);
 
-module.exports.run = function(command, args) {
+module.exports.run = function(command, args, workingFolder = null) {
     var extraParams = {};
     
     //extraParams.shell = true;
-    //extraParams.cwd = process.cwd();
     //extraParams.env = process.env;
     //extraParams.stdio = [process.stdin, process.stdout , process.stderr];
+    if (workingFolder) {
+        extraParams.cwd = process.cwd();
+    }
     extraParams.encoding = 'utf-8';
     extraParams.maxBuffer = 1024 * 1024 * 10
 
@@ -13361,6 +13364,8 @@ let deploy = function (deploy){
     core.info("=== deploy ===");
 
     var manifestsArray = deploy.manifestToDeploy.split(",");
+    var sfdxRootFolder = deploy.sfdxRootFolder;
+    
     var manifestTmp;
     var testClassesTmp;
 
@@ -13394,7 +13399,7 @@ let deploy = function (deploy){
             argsDeploy.push(deploy.testlevel);
         }
 
-        execCommand.run('sfdx', argsDeploy);
+        execCommand.run('sfdx', argsDeploy, sfdxRootFolder);
     }
 };
 

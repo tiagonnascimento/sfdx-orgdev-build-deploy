@@ -55,6 +55,8 @@ let deploy = function (deploy){
     core.info("=== deploy ===");
 
     var manifestsArray = deploy.manifestToDeploy.split(",");
+    var sfdxRootFolder = deploy.sfdxRootFolder;
+    
     var manifestTmp;
     var testClassesTmp;
 
@@ -88,7 +90,7 @@ let deploy = function (deploy){
             argsDeploy.push(deploy.testlevel);
         }
 
-        execCommand.run('sfdx', argsDeploy);
+        execCommand.run('sfdx', argsDeploy, sfdxRootFolder);
     }
 };
 
