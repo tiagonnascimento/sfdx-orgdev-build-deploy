@@ -1,4 +1,5 @@
 const core = require('@actions/core')
+const path = require('path');
 const execCommand = require('./exec-command.js');
 const fs = require('fs');
 const xml2js = require('xml2js');

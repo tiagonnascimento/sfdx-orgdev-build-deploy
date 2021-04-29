@@ -13308,6 +13308,7 @@ module.exports.install = function(command, args) {
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
 const core = __webpack_require__(2186)
+const path = __webpack_require__(5622);
 const execCommand = __webpack_require__(5505);
 const fs = __webpack_require__(5747);
 const xml2js = __webpack_require__(6189);
