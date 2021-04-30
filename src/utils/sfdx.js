@@ -1,4 +1,5 @@
 const core = require('@actions/core')
+const path = require('path');
 const execCommand = require('./exec-command.js');
 const fs = require('fs');
 const xml2js = require('xml2js');
@@ -55,6 +56,8 @@ let deploy = function (deploy){
     core.info("=== deploy ===");
 
     var manifestsArray = deploy.manifestToDeploy.split(",");
+    var sfdxRootFolder = deploy.sfdxRootFolder;
+    
     var manifestTmp;
     var testClassesTmp;
 
@@ -69,9 +72,9 @@ let deploy = function (deploy){
         }
 
         if(deploy.testlevel == "RunSpecifiedTests"){
-            testClassesTmp = getApexTestClass(manifestTmp, deploy.defaultSourcePath+'/classes', deploy.defaultTestClass);
+            testClassesTmp = getApexTestClass(sfdxRootFolder ? path.join(sfdxRootFolder, manifestTmp) : manifestTmp, deploy.defaultSourcePath + '/classes', deploy.defaultTestClass);
 
-            core.info("las clases son : "  + testClassesTmp);
+            core.info("classes are : "  + testClassesTmp);
             
             if(testClassesTmp){
                 argsDeploy.push("--testlevel");
@@ -88,7 +91,7 @@ let deploy = function (deploy){
             argsDeploy.push(deploy.testlevel);
         }
 
-        execCommand.run('sfdx', argsDeploy);
+        execCommand.run('sfdx', argsDeploy, sfdxRootFolder);
     }
 };
 

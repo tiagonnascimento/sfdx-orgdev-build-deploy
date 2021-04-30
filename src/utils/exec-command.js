@@ -1,13 +1,15 @@
 const core = require('@actions/core')
 const { spawnSync } = require('child_process');
 
-module.exports.run = function(command, args) {
+module.exports.run = function(command, args, workingFolder = null) {
     var extraParams = {};
     
     //extraParams.shell = true;
-    //extraParams.cwd = process.cwd();
     //extraParams.env = process.env;
     //extraParams.stdio = [process.stdin, process.stdout , process.stderr];
+    if (workingFolder) {
+        extraParams.cwd = workingFolder;
+    }
     extraParams.encoding = 'utf-8';
     extraParams.maxBuffer = 1024 * 1024 * 10
 

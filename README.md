@@ -74,7 +74,8 @@ jobs:
 | `client_id`           | _required_  | Client ID that will be used to connect into the target org/sandbox |
 | `username`            | _required_  | Username that will be used to connect into the target org/sandbox |
 | `checkonly`           | _required_  | Boolean value to indicate whether this action should execute the deploy or only check it, default is false, but if true it will add -c parameter on the force:mdapi:deploy commands |
-| `manifest_path`       | _required_  | Path on the current repository to one or more package.xml that represents the packages to be deployed. Based on this files the metadata package will be created and deployed in the order specified. Ex:  | manifest/package-01.xml,manifest/package-02.xml,manifest/package-03.xml
+| `manifest_path`       | _required_  | Path on the current repository (or on the root folder of the sfdx project if sfdx_root_folder is set) to one or more package.xml that represents the packages to be deployed. Based on this files the metadata package will be created and deployed in the order specified. Ex:  | manifest/package-01.xml,manifest/package-02.xml,manifest/package-03.xml
+| `sfdx_root_folder`    | _optional_  | Path on the current repository to the root folder of sfdx folder. Ex: sfdx_project
 | `deploy_testlevel`    | _optional_  | TestLevel applied on the deploy. Default is `RunLocalTests`. If specified `RunSpecifiedTests`, the action will execute only the classes mentioned in the manifest file that contains `@isTest` tag |
 | `deploy_wait_time`    | _optional_  | Wait time for deployment to finish in minutes. Default is `60` |
 | `destructive_path`    | _optional_  | Path on the repo where the destructive changes directory is - if not informed, it's not executed |
