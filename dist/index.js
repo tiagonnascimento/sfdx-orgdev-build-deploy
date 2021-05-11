@@ -13381,7 +13381,10 @@ let deploy = function (deploy){
         }
 
         if(deploy.testlevel == "RunSpecifiedTests"){
-            testClassesTmp = getApexTestClass(sfdxRootFolder ? path.join(sfdxRootFolder, manifestTmp) : manifestTmp, deploy.defaultSourcePath + '/classes', deploy.defaultTestClass);
+            testClassesTmp = getApexTestClass(
+                sfdxRootFolder ? path.join(sfdxRootFolder, manifestTmp) : manifestTmp, 
+                sfdxRootFolder ? path.join(sfdxRootFolder, deploy.defaultSourcePath, 'classes') : path.join(deploy.defaultSourcePath, 'classes'),
+                deploy.defaultTestClass);
 
             core.info("classes are : "  + testClassesTmp);
             
