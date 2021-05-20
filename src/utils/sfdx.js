@@ -41,6 +41,35 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
     return testClasses.join(",");
 }
 
+let getMetadataTypes = function(manifestsFiles, sfdxRootFolder){
+    core.info("=== getManifestTypes ===");
+    var parser = new xml2js.Parser();
+    var type = null;
+    var metadataTypes = [];
+
+    for(var f = 0; f < manifestsFiles.length; f++){
+        var manifestFile = sfdxRootFolder ? path.join(sfdxRootFolder, manifestsFiles[f]) : manifestsFiles[f];
+
+        var xml = fs.readFileSync(manifestFile, "utf8");
+
+        parser.parseString(xml, function (err, result) {
+            for(var i in result.Package.types){
+                type = result.Package.types[i];
+                for(var j = 0; j < type.members.length; j++){
+                    member = type.members[j];
+                    if (member == "*") {
+                        metadataTypes.push(type.name[0]);
+                    } else {
+                        metadataTypes.push(type.name[0] + ":" + member);
+                    }
+                }
+            }
+        });
+    }
+
+    return metadataTypes.join(",");
+}
+
 let login = function (cert, login){
     core.info("=== login ===");
     core.debug('=== Decrypting certificate');
@@ -98,6 +127,20 @@ let deploy = function (deploy){
     }
 };
 
+let retrieve = function (retrieveArgs){
+    core.info("=== retrieve ===");
+
+    var manifestsFiles = retrieveArgs.manifestToRetrieve.split(",");
+    var sfdxRootFolder = retrieveArgs.sfdxRootFolder;
+    
+    var metadataTypes = getMetadataTypes(manifestsFiles, sfdxRootFolder);
+    core.info("metadata: " + metadataTypes);
+
+    var commandArgs = ['force:source:retrieve', '--wait', retrieveArgs.deployWaitTime, '--metadata', metadataTypes, '--targetusername', 'sfdc', '--json', '--loglevel', 'INFO'];
+
+    execCommand.run('sfdx', commandArgs, sfdxRootFolder);
+};
+
 let destructiveDeploy = function (deploy){
     core.info("=== destructiveDeploy ===");
     if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
@@ -123,3 +166,4 @@ module.exports.deploy = deploy;
 module.exports.login = login;
 module.exports.destructiveDeploy = destructiveDeploy;
 module.exports.dataFactory = dataFactory;
+module.exports.retrieve = retrieve;

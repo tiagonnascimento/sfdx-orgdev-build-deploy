@@ -13190,6 +13190,7 @@ try {
   var cert = {};
   var login = {};
   var deploy = {};
+  var retriveArgs = {};
 
   //Install dependecies  
   dependencies.install();
@@ -13203,7 +13204,15 @@ try {
   login.clientId = core.getInput('client_id');
   login.orgType = core.getInput('type');
   login.username = core.getInput('username');
-  
+
+  //Login to Org
+  sfdx.login(cert,login);
+
+  var operationType = core.getInput('operation_type');
+
+  if (operationType != 'retrieve') {
+    var deploy = {};
+
   //Load deploy params
   deploy.defaultSourcePath = core.getInput('default_source_path');
   deploy.defaultTestClass = core.getInput('default_test_class');
@@ -13214,19 +13223,26 @@ try {
   deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
   deploy.testlevel = core.getInput('deploy_testlevel');
   deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
-  
-  //Login to Org
-  sfdx.login(cert,login);
 
   //Deply/Checkonly to Org
   sfdx.deploy(deploy);
-  
+
   //Destructive deploy
   sfdx.destructiveDeploy(deploy);
 
   //Executes data factory script
   sfdx.dataFactory(deploy);
-  
+  } else {
+    var retrieveArgs = {};
+
+    retrieveArgs.manifestToRetrieve = core.getInput('manifest_path');
+    retrieveArgs.sfdxRootFolder = core.getInput('sfdx_root_folder');
+    retrieveArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
+
+    //Deply/Checkonly to Org
+    sfdx.retrieve(retrieveArgs);
+  }
+
 } catch (error) {
   core.setFailed(error.message);
 }
@@ -13350,6 +13366,35 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
     return testClasses.join(",");
 }
 
+let getMetadataTypes = function(manifestsFiles, sfdxRootFolder){
+    core.info("=== getManifestTypes ===");
+    var parser = new xml2js.Parser();
+    var type = null;
+    var metadataTypes = [];
+
+    for(var f = 0; f < manifestsFiles.length; f++){
+        var manifestFile = sfdxRootFolder ? path.join(sfdxRootFolder, manifestsFiles[f]) : manifestsFiles[f];
+
+        var xml = fs.readFileSync(manifestFile, "utf8");
+
+        parser.parseString(xml, function (err, result) {
+            for(var i in result.Package.types){
+                type = result.Package.types[i];
+                for(var j = 0; j < type.members.length; j++){
+                    member = type.members[j];
+                    if (member == "*") {
+                        metadataTypes.push(type.name[0]);
+                    } else {
+                        metadataTypes.push(type.name[0] + ":" + member);
+                    }
+                }
+            }
+        });
+    }
+
+    return metadataTypes.join(",");
+}
+
 let login = function (cert, login){
     core.info("=== login ===");
     core.debug('=== Decrypting certificate');
@@ -13407,6 +13452,20 @@ let deploy = function (deploy){
     }
 };
 
+let retrieve = function (retrieveArgs){
+    core.info("=== retrieve ===");
+
+    var manifestsFiles = retrieveArgs.manifestToRetrieve.split(",");
+    var sfdxRootFolder = retrieveArgs.sfdxRootFolder;
+    
+    var metadataTypes = getMetadataTypes(manifestsFiles, sfdxRootFolder);
+    core.info("metadata: " + metadataTypes);
+
+    var commandArgs = ['force:source:retrieve', '--wait', retrieveArgs.deployWaitTime, '--metadata', metadataTypes, '--targetusername', 'sfdc', '--json', '--loglevel', 'INFO'];
+
+    execCommand.run('sfdx', commandArgs, sfdxRootFolder);
+};
+
 let destructiveDeploy = function (deploy){
     core.info("=== destructiveDeploy ===");
     if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
@@ -13432,6 +13491,8 @@ module.exports.deploy = deploy;
 module.exports.login = login;
 module.exports.destructiveDeploy = destructiveDeploy;
 module.exports.dataFactory = dataFactory;
+module.exports.retrieve = retrieve;
+
 
 /***/ }),
 

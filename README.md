@@ -62,6 +62,7 @@ jobs:
                 destructive_path: destructive
                 data_factory: scripts/apex/CreateBaseData.apex
                 default_source_path: force-app/main/default
+                operation_type: deploy
 ```
 
 ### Inputs:
@@ -81,7 +82,7 @@ jobs:
 | `destructive_path`    | _optional_  | Path on the repo where the destructive changes directory is - if not informed, it's not executed |
 | `data_factory`        | _optional_  | Path on the repo where an APEX script used as a data factory is stored. if not informed, it's not executed |
 | `default_source_path` | _optional_  | Path on the repo where your source files are stored, for SFDX project this is normally `force-app/main/default`
-
+| `operation_type`      | _optional_  | Type of the operation. `deploy` or `retrieve`. Deploy by default. Or retrieve. If retrieve - Retrieves the sources from org according provided package.xml in manifest_path
 
 # Note for destructives changes.
 

@@ -13,7 +13,6 @@ try {
   //Variables declaration
   var cert = {};
   var login = {};
-  var deploy = {};
 
   //Install dependecies  
   dependencies.install();
@@ -27,7 +26,15 @@ try {
   login.clientId = core.getInput('client_id');
   login.orgType = core.getInput('type');
   login.username = core.getInput('username');
-  
+
+  //Login to Org
+  sfdx.login(cert,login);
+
+  var operationType = core.getInput('operation_type');
+
+  if (operationType != 'retrieve') {
+    var deploy = {};
+
   //Load deploy params
   deploy.defaultSourcePath = core.getInput('default_source_path');
   deploy.defaultTestClass = core.getInput('default_test_class');
@@ -38,19 +45,26 @@ try {
   deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
   deploy.testlevel = core.getInput('deploy_testlevel');
   deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
-  
-  //Login to Org
-  sfdx.login(cert,login);
 
   //Deply/Checkonly to Org
   sfdx.deploy(deploy);
-  
+
   //Destructive deploy
   sfdx.destructiveDeploy(deploy);
 
   //Executes data factory script
   sfdx.dataFactory(deploy);
-  
+  } else {
+    var retrieveArgs = {};
+
+    retrieveArgs.manifestToRetrieve = core.getInput('manifest_path');
+    retrieveArgs.sfdxRootFolder = core.getInput('sfdx_root_folder');
+    retrieveArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
+
+    //Deply/Checkonly to Org
+    sfdx.retrieve(retrieveArgs);
+  }
+
 } catch (error) {
   core.setFailed(error.message);
 }

@@ -63,6 +63,11 @@ inputs:
         required: false
         default: 'force-app/main/default'
 
+    operation_type:
+        description: 'Type of the operation. Deploy by default. Or retrieve. If retrieve - retrieves the sources from org according provided package.xml in manifest_path'
+        required: false
+        default: 'deploy'
+
 runs:
     using: 'node12'
     main: 'dist/index.js'
