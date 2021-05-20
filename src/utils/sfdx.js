@@ -134,7 +134,7 @@ let retrieve = function (retrieveArgs){
     var sfdxRootFolder = retrieveArgs.sfdxRootFolder;
     
     var metadataTypes = getMetadataTypes(manifestsFiles, sfdxRootFolder);
-    core.info("metadata: " + metadataTypes);
+    core.info(`metadata: ${metadataTypes}`);
 
     var commandArgs = ['force:source:retrieve', '--wait', retrieveArgs.deployWaitTime, '--metadata', metadataTypes, '--targetusername', 'sfdc', '--json', '--loglevel', 'INFO'];
 

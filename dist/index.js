@@ -13189,8 +13189,6 @@ try {
   //Variables declaration
   var cert = {};
   var login = {};
-  var deploy = {};
-  var retriveArgs = {};
 
   //Install dependecies  
   dependencies.install();
@@ -13210,29 +13208,29 @@ try {
 
   var operationType = core.getInput('operation_type');
 
-  if (operationType != 'retrieve') {
+  if (operationType == 'deploy') {
     var deploy = {};
 
-  //Load deploy params
-  deploy.defaultSourcePath = core.getInput('default_source_path');
-  deploy.defaultTestClass = core.getInput('default_test_class');
-  deploy.manifestToDeploy = core.getInput('manifest_path');
-  deploy.sfdxRootFolder = core.getInput('sfdx_root_folder');
-  deploy.destructivePath = core.getInput('destructive_path');
-  deploy.dataFactory = core.getInput('data_factory');
-  deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
-  deploy.testlevel = core.getInput('deploy_testlevel');
-  deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
+    //Load deploy params
+    deploy.defaultSourcePath = core.getInput('default_source_path');
+    deploy.defaultTestClass = core.getInput('default_test_class');
+    deploy.manifestToDeploy = core.getInput('manifest_path');
+    deploy.sfdxRootFolder = core.getInput('sfdx_root_folder');
+    deploy.destructivePath = core.getInput('destructive_path');
+    deploy.dataFactory = core.getInput('data_factory');
+    deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
+    deploy.testlevel = core.getInput('deploy_testlevel');
+    deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
 
-  //Deply/Checkonly to Org
-  sfdx.deploy(deploy);
+    //Deply/Checkonly to Org
+    sfdx.deploy(deploy);
 
-  //Destructive deploy
-  sfdx.destructiveDeploy(deploy);
+    //Destructive deploy
+    sfdx.destructiveDeploy(deploy);
 
-  //Executes data factory script
-  sfdx.dataFactory(deploy);
-  } else {
+    //Executes data factory script
+    sfdx.dataFactory(deploy);
+  } else if (operationType == 'retrieve') {
     var retrieveArgs = {};
 
     retrieveArgs.manifestToRetrieve = core.getInput('manifest_path');
@@ -13241,6 +13239,8 @@ try {
 
     //Deply/Checkonly to Org
     sfdx.retrieve(retrieveArgs);
+  } else {
+    core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
   }
 
 } catch (error) {
@@ -13459,7 +13459,7 @@ let retrieve = function (retrieveArgs){
     var sfdxRootFolder = retrieveArgs.sfdxRootFolder;
     
     var metadataTypes = getMetadataTypes(manifestsFiles, sfdxRootFolder);
-    core.info("metadata: " + metadataTypes);
+    core.info(`metadata: ${metadataTypes}`);
 
     var commandArgs = ['force:source:retrieve', '--wait', retrieveArgs.deployWaitTime, '--metadata', metadataTypes, '--targetusername', 'sfdc', '--json', '--loglevel', 'INFO'];
 
