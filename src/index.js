@@ -6,7 +6,7 @@ const sfdx = require('./utils/sfdx.js');
 
 try {
   
-  core.debug("=== index.js ===");
+  core.debug("=== index.js test ===");
   const payload = JSON.stringify(github.context.payload, undefined, 2)
   core.debug(`The event payload: ${payload}`);
   
@@ -63,7 +63,11 @@ try {
 
     //Deply/Checkonly to Org
     sfdx.retrieve(retrieveArgs);
-  } else {
+  } else if (operationType == "create-sandbox") {
+		var args = {};
+		args.sandboxName = core.getInput('sandbox_name');
+		sfdx.createSandbox(args); 
+	} else {
     core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
   }
 
