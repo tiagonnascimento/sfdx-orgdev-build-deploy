@@ -13239,7 +13239,11 @@ try {
 
     //Deply/Checkonly to Org
     sfdx.retrieve(retrieveArgs);
-  } else {
+  } else if (operationType == "create-sandbox") {
+		var args = {};
+		args.sandboxName = core.getInput('sandbox_name');
+		sfdx.createSandbox(args); 
+	} else {
     core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
   }
 
@@ -13484,13 +13488,18 @@ let dataFactory = function (deploy){
     }
 };
 
+const createSandbox = function (createSandboxArgs){
+	core.info("=== createSandbox ===");
+	var commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+cloneArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO']; //-u is necessary?
+	execCommand.run('sfdx', commandArgs);
+}
 
 module.exports.deploy = deploy;
 module.exports.login = login;
 module.exports.destructiveDeploy = destructiveDeploy;
 module.exports.dataFactory = dataFactory;
 module.exports.retrieve = retrieve;
-
+module.exports.createSandbox = createSandbox;
 
 /***/ }),
 
