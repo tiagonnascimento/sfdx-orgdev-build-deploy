@@ -13253,6 +13253,36 @@ try {
 
 /***/ }),
 
+/***/ 7014:
+/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
+
+const core = __webpack_require__(2186)
+const { spawn } = __webpack_require__(3129);
+
+module.exports.run = function(command, args, workingFolder = null) {
+    var extraParams = {};
+    if (workingFolder) {
+        extraParams.cwd = workingFolder;
+    }
+    extraParams.encoding = 'utf-8';
+    extraParams.maxBuffer = 1024 * 1024 * 10
+
+    var spawn = spawn(command, args, extraParams);
+
+    spawn.stdout.on('data', (data) => {
+        core.info("Command executed: " + command)
+        core.info("With the following args: " + args.toString());
+        core.info("Having the following return: " + data.toString());
+    });
+
+    spawn.stderr.on('data', (data) => {
+        core.error(data.toString());
+        throw Error(data.toString());
+    });
+}
+
+/***/ }),
+
 /***/ 5505:
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
@@ -13328,6 +13358,7 @@ module.exports.install = function(command, args) {
 const core = __webpack_require__(2186)
 const path = __webpack_require__(5622);
 const execCommand = __webpack_require__(5505);
+const execAsyncCommand = __webpack_require__(7014);
 const fs = __webpack_require__(5747);
 const xml2js = __webpack_require__(6189);
 
@@ -13491,7 +13522,7 @@ let dataFactory = function (deploy){
 const createSandbox = function (createSandboxArgs){
 	core.info("=== createSandbox ===");
 	var commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+createSandboxArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO']; //-u is necessary?
-	execCommand.run('sfdx', commandArgs);
+	execAsyncCommand.run('sfdx', commandArgs);
 }
 
 module.exports.deploy = deploy;
