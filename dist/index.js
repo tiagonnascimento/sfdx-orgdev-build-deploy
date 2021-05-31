@@ -13253,48 +13253,6 @@ try {
 
 /***/ }),
 
-/***/ 7014:
-/***/ ((module, __unused_webpack_exports, __webpack_require__) => {
-
-const core = __webpack_require__(2186)
-const { spawn } = __webpack_require__(3129);
-
-module.exports.run = function(command, args, workingFolder = null) {
-    const extraParams = {};
-    if (workingFolder) {
-        extraParams.cwd = workingFolder;
-    }
-    extraParams.encoding = 'utf-8';
-    extraParams.maxBuffer = 1024 * 1024 * 10
-
-    const ls = spawn(command, args, extraParams);
-
-    ls.stdout.on('data', (data) => {
-        core.info("Command executed: " + command)
-        core.info("With the following args: " + args.toString());
-        core.info("Having the following return: " + data.toString());
-
-        if (data.status !== 0)
-        {
-            if (data.name === 'pollingTimeout')
-                core.setOutput('processing','1');
-            else {
-                core.error(data.toString());
-                throw Error(data.toString());        
-            }
-        }
-        else 
-            core.setOutput('processing','0');
-    });
-
-    ls.stderr.on('data', (data) => {
-        core.error(data.toString());
-        throw Error(data.toString());
-    });
-}
-
-/***/ }),
-
 /***/ 5505:
 /***/ ((module, __unused_webpack_exports, __webpack_require__) => {
 
@@ -13316,24 +13274,30 @@ module.exports.run = function(command, args, workingFolder = null) {
     var spawn = spawnSync(command, args, extraParams);
 
     if (spawn.stdout) {
-        
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + spawn.stdout.toString());
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
-        var errorMessage = '';
-        if (spawn.error !== undefined) {
-            errorMessage = spawn.error;
-        } 
-        
-        if (spawn.stderr !== undefined) {
-            errorMessage += " " + spawn.stderr.toString();
+        if (spawn.name === 'pollingTimeout')
+            core.setOutput('processing','1');
+        else {
+            var errorMessage = '';
+            if (spawn.error !== undefined) {
+                errorMessage = spawn.error;
+            } 
+            
+            if (spawn.stderr !== undefined) {
+                errorMessage += " " + spawn.stderr.toString();
+            }
+            core.error(errorMessage);
+            throw Error(errorMessage);
         }
-        core.error(errorMessage);
-        throw Error(errorMessage);
-    } 
+    }
+    else {
+        core.setOutput('processing','0');
+    }
 }
 
 /***/ }),
@@ -13370,7 +13334,6 @@ module.exports.install = function(command, args) {
 const core = __webpack_require__(2186)
 const path = __webpack_require__(5622);
 const execCommand = __webpack_require__(5505);
-const execAsyncCommand = __webpack_require__(7014);
 const fs = __webpack_require__(5747);
 const xml2js = __webpack_require__(6189);
 
@@ -13533,8 +13496,8 @@ let dataFactory = function (deploy){
 
 const createSandbox = function (createSandboxArgs){
 	core.info("=== createSandbox ===");
-	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+createSandboxArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO','-w','30'];
-	execAsyncCommand.run('sfdx', commandArgs);
+	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+createSandboxArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO','-w','1'];
+	execCommand.run('sfdx', commandArgs);
 }
 
 module.exports.deploy = deploy;

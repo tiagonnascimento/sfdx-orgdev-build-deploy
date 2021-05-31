@@ -16,22 +16,28 @@ module.exports.run = function(command, args, workingFolder = null) {
     var spawn = spawnSync(command, args, extraParams);
 
     if (spawn.stdout) {
-        
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + spawn.stdout.toString());
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
-        var errorMessage = '';
-        if (spawn.error !== undefined) {
-            errorMessage = spawn.error;
-        } 
-        
-        if (spawn.stderr !== undefined) {
-            errorMessage += " " + spawn.stderr.toString();
+        if (spawn.name === 'pollingTimeout')
+            core.setOutput('processing','1');
+        else {
+            var errorMessage = '';
+            if (spawn.error !== undefined) {
+                errorMessage = spawn.error;
+            } 
+            
+            if (spawn.stderr !== undefined) {
+                errorMessage += " " + spawn.stderr.toString();
+            }
+            core.error(errorMessage);
+            throw Error(errorMessage);
         }
-        core.error(errorMessage);
-        throw Error(errorMessage);
-    } 
+    }
+    else {
+        core.setOutput('processing','0');
+    }
 }
