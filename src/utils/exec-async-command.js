@@ -15,6 +15,18 @@ module.exports.run = function(command, args, workingFolder = null) {
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + data.toString());
+
+        if (data.status !== 0)
+        {
+            if (data.name === 'pollingTimeout')
+                core.setOutput('processing','1');
+            else {
+                core.error(data.toString());
+                throw Error(data.toString());        
+            }
+        }
+        else 
+            core.setOutput('processing','0');
     });
 
     ls.stderr.on('data', (data) => {
