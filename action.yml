@@ -68,6 +68,10 @@ inputs:
         required: false
         default: 'deploy'
 
+    sandbox_name:
+        description: 'Name of the sandbox to be used when creating a new sandbox'
+        required: false
+
 runs:
     using: 'node12'
     main: 'dist/index.js'
