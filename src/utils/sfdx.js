@@ -1,6 +1,7 @@
 const core = require('@actions/core')
 const path = require('path');
 const execCommand = require('./exec-command.js');
+const execAsyncCommand = require('./exec-async-command.js');
 const fs = require('fs');
 const xml2js = require('xml2js');
 
@@ -164,7 +165,7 @@ let dataFactory = function (deploy){
 const createSandbox = function (createSandboxArgs){
 	core.info("=== createSandbox ===");
 	var commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+createSandboxArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO']; //-u is necessary?
-	execCommand.run('sfdx', commandArgs);
+	execAsyncCommand.run('sfdx', commandArgs);
 }
 
 module.exports.deploy = deploy;
