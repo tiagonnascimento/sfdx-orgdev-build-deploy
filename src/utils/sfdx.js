@@ -163,7 +163,7 @@ let dataFactory = function (deploy){
 
 const createSandbox = function (createSandboxArgs){
 	core.info("=== createSandbox ===");
-	var commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+cloneArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO']; //-u is necessary?
+	var commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+createSandboxArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO']; //-u is necessary?
 	execCommand.run('sfdx', commandArgs);
 }
 
