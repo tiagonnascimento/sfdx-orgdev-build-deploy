@@ -19,27 +19,32 @@ module.exports.run = function(command, args, workingFolder = null) {
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + spawn.stdout.toString());
-        core.info("spawn:" + spawn.toString());
-        core.info("tipo:" + typeof spawn.stdout);
+        if (spawn.status !== 0) {
+            try {
+                const ret = JSON.parse(spawn.stdout);
+                if (ret.name == 'pollingTimeout') {
+                    core.setOutput('processing','1');
+                    return;
+                }
+            }
+            catch {}
+        }
+        else {
+            core.setOutput('processing','0');
+            return;
+        }
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
-        if (typeof spawn.stdout == 'object' && spawn.stdout.name == 'pollingTimeout')
-            core.setOutput('processing','1');
-        else {
-            var errorMessage = '';
-            if (spawn.error !== undefined) {
-                errorMessage = spawn.error;
-            } 
-            
-            if (spawn.stderr !== undefined) {
-                errorMessage += " " + spawn.stderr.toString();
-            }
-            core.error(errorMessage);
-            throw Error(errorMessage);
+        var errorMessage = '';
+        if (spawn.error !== undefined) {
+            errorMessage = spawn.error;
+        } 
+        
+        if (spawn.stderr !== undefined) {
+            errorMessage += " " + spawn.stderr.toString();
         }
-    }
-    else {
-        core.setOutput('processing','0');
+        core.error(errorMessage);
+        throw Error(errorMessage);
     }
 }
