@@ -13277,10 +13277,12 @@ module.exports.run = function(command, args, workingFolder = null) {
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + spawn.stdout.toString());
+        core.info("spawn:" + spawn.toString());
+        core.info("tipo:" + typeof spawn.stdout);
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
-        if (spawn.name === 'pollingTimeout')
+        if (typeof spawn.stdout == 'object' && spawn.stdout.name == 'pollingTimeout')
             core.setOutput('processing','1');
         else {
             var errorMessage = '';
