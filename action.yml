@@ -69,7 +69,15 @@ inputs:
         default: 'deploy'
 
     sandbox_name:
-        description: 'Name of the sandbox to be used when creating a new sandbox'
+        description: 'Name of the new sandbox to be created or cloned'
+        required: false
+
+    source_sandbox_name:
+        description: 'Name of the source sandbox to be cloned. Default: masterdev'
+        required: false
+
+    sandbox_creation_type:
+        description: 'Accepted types: new or clone. Default is clone.'
         required: false
 
 runs:
