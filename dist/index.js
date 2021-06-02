@@ -13206,47 +13206,62 @@ try {
   //Login to Org
   sfdx.login(cert,login);
 
-  var operationType = core.getInput('operation_type');
+  const operationType = core.getInput('operation_type');
 
-  if (operationType == 'deploy') {
-    var deploy = {};
+  switch (operationType){
+    case 'deploy':
+      const deploy = {};
 
-    //Load deploy params
-    deploy.defaultSourcePath = core.getInput('default_source_path');
-    deploy.defaultTestClass = core.getInput('default_test_class');
-    deploy.manifestToDeploy = core.getInput('manifest_path');
-    deploy.sfdxRootFolder = core.getInput('sfdx_root_folder');
-    deploy.destructivePath = core.getInput('destructive_path');
-    deploy.dataFactory = core.getInput('data_factory');
-    deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
-    deploy.testlevel = core.getInput('deploy_testlevel');
-    deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
+      //Load deploy params
+      deploy.defaultSourcePath = core.getInput('default_source_path');
+      deploy.defaultTestClass = core.getInput('default_test_class');
+      deploy.manifestToDeploy = core.getInput('manifest_path');
+      deploy.sfdxRootFolder = core.getInput('sfdx_root_folder');
+      deploy.destructivePath = core.getInput('destructive_path');
+      deploy.dataFactory = core.getInput('data_factory');
+      deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
+      deploy.testlevel = core.getInput('deploy_testlevel');
+      deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
 
-    //Deply/Checkonly to Org
-    sfdx.deploy(deploy);
+      //Deploy/Checkonly to Org
+      sfdx.deploy(deploy);
 
-    //Destructive deploy
-    sfdx.destructiveDeploy(deploy);
+      //Destructive deploy
+      sfdx.destructiveDeploy(deploy);
 
-    //Executes data factory script
-    sfdx.dataFactory(deploy);
-  } else if (operationType == 'retrieve') {
-    var retrieveArgs = {};
+      //Executes data factory script
+      sfdx.dataFactory(deploy);
 
-    retrieveArgs.manifestToRetrieve = core.getInput('manifest_path');
-    retrieveArgs.sfdxRootFolder = core.getInput('sfdx_root_folder');
-    retrieveArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
+      //Create or clone sandbox
+      const sandboxArgs = {};
+      sandboxArgs.sandboxCreationType = core.getInput('sandbox_creation_type') || 'clone';
+      sandboxArgs.sandboxName = core.getInput('sandbox_name');
+      sandboxArgs.sourceSandboxName = core.getInput('source_sandbox_name') || 'masterdev';
+      sfdx.createCloneSandbox(sandboxArgs);
 
-    //Deply/Checkonly to Org
-    sfdx.retrieve(retrieveArgs);
-  } else if (operationType == "create-sandbox") {
-		var args = {};
-		args.sandboxName = core.getInput('sandbox_name');
-		sfdx.createSandbox(args); 
-	} else {
-    core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
+      //Deploy to Sandbox
+      //sfdx.deploy(deploy,sandboxArgs.sandboxName);
+      break;
+    case 'retrieve':
+      const retrieveArgs = {};
+      retrieveArgs.manifestToRetrieve = core.getInput('manifest_path');
+      retrieveArgs.sfdxRootFolder = core.getInput('sfdx_root_folder');
+      retrieveArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
+      sfdx.retrieve(retrieveArgs);
+      break;
+    case 'create-sandbox': 
+      const createArgs = {};
+      args.sandboxName = core.getInput('sandbox_name');
+      sfdx.createSandbox(createArgs); 
+      break;
+    case 'list-orgs':
+      const args = {};
+      args.sandboxName = core.getInput('sandbox_name');
+      sfdx.listOrgs(args); 
+	    break;
+    default:
+      core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
   }
-
 } catch (error) {
   core.setFailed(error.message);
 }
@@ -13259,7 +13274,14 @@ try {
 const core = __webpack_require__(2186)
 const { spawnSync } = __webpack_require__(3129);
 
-module.exports.run = function(command, args, workingFolder = null) {
+const returnTypes = {
+    LOGGED: 'logged',
+    NOTFOUND: 'not found',
+    PROCESSING: 'processing'
+}
+
+module.exports.returnTypes = returnTypes;
+module.exports.run = function(command, args, workingFolder = null, process = null) {
     var extraParams = {};
     
     //extraParams.shell = true;
@@ -13277,19 +13299,24 @@ module.exports.run = function(command, args, workingFolder = null) {
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + spawn.stdout.toString());
-        if (spawn.status !== 0) {
-            try {
-                const ret = JSON.parse(spawn.stdout);
-                if (ret.name == 'pollingTimeout') {
-                    core.setOutput('processing','1');
-                    return;
-                }
+
+        if (process == 'checkSandbox') {
+            if (spawn.status == 0) {
+                return returnTypes.LOGGED;
+            } else {
+                try {
+                    const ret = JSON.parse(spawn.stdout);
+                    switch (ret.name) {
+                        case 'AuthInfoOverwriteError':
+                            return returnTypes.LOGGED;
+                        case 'SandboxProcessNotFoundBySandboxName':
+                            return returnTypes.NOTFOUND;
+                        case 'pollingTimeout':
+                            if (ret.message == 'Sandbox status is Processing; timed out waiting for completion.')
+                                return returnTypes.PROCESSING;
+                    }
+                } catch {}
             }
-            catch {}
-        }
-        else {
-            core.setOutput('processing','0');
-            return;
         }
     }
 
@@ -13501,10 +13528,53 @@ let dataFactory = function (deploy){
     }
 };
 
-const createSandbox = function (createSandboxArgs){
+const createSandbox = function (args){
 	core.info("=== createSandbox ===");
-	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+createSandboxArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO','-w','60'];
+	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '-w', '60'];
 	execCommand.run('sfdx', commandArgs);
+}
+
+const cloneSandbox = function (args){
+	core.info("=== cloneSandbox ===");
+	const commandArgs = ['force:org:clone', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'sourceSandboxName='+args.sourceSandboxName, '-u', 'sfdc', '--json', '-w', '60'];
+	execCommand.run('sfdx', commandArgs);
+}
+
+const createCloneSandbox = function (args){
+    core.info("=== checkSandbox ===");
+    const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2'];
+	const ret = execCommand.run('sfdx', commandArgs, null,'checkSandbox');
+
+    switch(ret) {
+        case execCommand.returnTypes.LOGGED:
+            //already logged, do nothing.
+            break;
+        case execCommand.returnTypes.NOTFOUND:
+            if (args.sandboxCreationType == 'new') { //default is clone
+                createSandbox(args);
+            } else {
+                cloneSandbox(args);
+            }
+            break;
+        case execCommand.returnTypes.PROCESSING:
+            const errorMessage = "Sandbox is processing, can't deploy now into sandbox.";
+            core.error(errorMessage);
+            throw Error(errorMessage);
+        default:
+            throw Error('Return not expected.');
+    }
+}
+
+const listOrgs = function(args){
+    core.info("=== listOrgs ===");
+    let commandArgs = ['auth:list', '--json'];
+    execCommand.run('sfdx', commandArgs);
+
+    commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2'];
+	execCommand.run('sfdx', commandArgs);
+
+    commandArgs = ['auth:list', '--json'];
+    execCommand.run('sfdx', commandArgs);
 }
 
 module.exports.deploy = deploy;
@@ -13513,6 +13583,8 @@ module.exports.destructiveDeploy = destructiveDeploy;
 module.exports.dataFactory = dataFactory;
 module.exports.retrieve = retrieve;
 module.exports.createSandbox = createSandbox;
+module.exports.createCloneSandbox = createCloneSandbox;
+module.exports.listOrgs = listOrgs;
 
 /***/ }),
 

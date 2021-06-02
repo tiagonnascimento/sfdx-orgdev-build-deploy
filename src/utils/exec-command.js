@@ -1,7 +1,14 @@
 const core = require('@actions/core')
 const { spawnSync } = require('child_process');
 
-module.exports.run = function(command, args, workingFolder = null) {
+const returnTypes = {
+    LOGGED: 'logged',
+    NOTFOUND: 'not found',
+    PROCESSING: 'processing'
+}
+
+module.exports.returnTypes = returnTypes;
+module.exports.run = function(command, args, workingFolder = null, process = null) {
     var extraParams = {};
     
     //extraParams.shell = true;
@@ -19,19 +26,24 @@ module.exports.run = function(command, args, workingFolder = null) {
         core.info("Command executed: " + command)
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + spawn.stdout.toString());
-        if (spawn.status !== 0) {
-            try {
-                const ret = JSON.parse(spawn.stdout);
-                if (ret.name == 'pollingTimeout') {
-                    core.setOutput('processing','1');
-                    return;
-                }
+
+        if (process == 'checkSandbox') {
+            if (spawn.status == 0) {
+                return returnTypes.LOGGED;
+            } else {
+                try {
+                    const ret = JSON.parse(spawn.stdout);
+                    switch (ret.name) {
+                        case 'AuthInfoOverwriteError':
+                            return returnTypes.LOGGED;
+                        case 'SandboxProcessNotFoundBySandboxName':
+                            return returnTypes.NOTFOUND;
+                        case 'pollingTimeout':
+                            if (ret.message == 'Sandbox status is Processing; timed out waiting for completion.')
+                                return returnTypes.PROCESSING;
+                    }
+                } catch {}
             }
-            catch {}
-        }
-        else {
-            core.setOutput('processing','0');
-            return;
         }
     }
 

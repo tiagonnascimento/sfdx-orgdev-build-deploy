@@ -161,10 +161,53 @@ let dataFactory = function (deploy){
     }
 };
 
-const createSandbox = function (createSandboxArgs){
+const createSandbox = function (args){
 	core.info("=== createSandbox ===");
-	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+createSandboxArgs.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '--loglevel', 'INFO','-w','60'];
+	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '-w', '60'];
 	execCommand.run('sfdx', commandArgs);
+}
+
+const cloneSandbox = function (args){
+	core.info("=== cloneSandbox ===");
+	const commandArgs = ['force:org:clone', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'sourceSandboxName='+args.sourceSandboxName, '-u', 'sfdc', '--json', '-w', '60'];
+	execCommand.run('sfdx', commandArgs);
+}
+
+const createCloneSandbox = function (args){
+    core.info("=== checkSandbox ===");
+    const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2'];
+	const ret = execCommand.run('sfdx', commandArgs, null,'checkSandbox');
+
+    switch(ret) {
+        case execCommand.returnTypes.LOGGED:
+            //already logged, do nothing.
+            break;
+        case execCommand.returnTypes.NOTFOUND:
+            if (args.sandboxCreationType == 'new') { //default is clone
+                createSandbox(args);
+            } else {
+                cloneSandbox(args);
+            }
+            break;
+        case execCommand.returnTypes.PROCESSING:
+            const errorMessage = "Sandbox is processing, can't deploy now into sandbox.";
+            core.error(errorMessage);
+            throw Error(errorMessage);
+        default:
+            throw Error('Return not expected.');
+    }
+}
+
+const listOrgs = function(args){
+    core.info("=== listOrgs ===");
+    let commandArgs = ['auth:list', '--json'];
+    execCommand.run('sfdx', commandArgs);
+
+    commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2'];
+	execCommand.run('sfdx', commandArgs);
+
+    commandArgs = ['auth:list', '--json'];
+    execCommand.run('sfdx', commandArgs);
 }
 
 module.exports.deploy = deploy;
@@ -173,3 +216,5 @@ module.exports.destructiveDeploy = destructiveDeploy;
 module.exports.dataFactory = dataFactory;
 module.exports.retrieve = retrieve;
 module.exports.createSandbox = createSandbox;
+module.exports.createCloneSandbox = createCloneSandbox;
+module.exports.listOrgs = listOrgs;
