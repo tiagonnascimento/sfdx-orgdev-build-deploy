@@ -185,8 +185,7 @@ const createCloneSandbox = function (args){
         case execCommand.returnTypes.NOTFOUND:
             if (args.sandboxCreationType == 'new') { //default is clone
                 createSandbox(args);
-            }
-            else {
+            } else {
                 cloneSandbox(args);
             }
             break;

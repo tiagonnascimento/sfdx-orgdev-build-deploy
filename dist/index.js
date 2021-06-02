@@ -13262,8 +13262,7 @@ try {
     default:
       core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
   }
-}
-catch (error) {
+} catch (error) {
   core.setFailed(error.message);
 }
 
@@ -13304,8 +13303,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
         if (process == 'checkSandbox') {
             if (spawn.status == 0) {
                 return returnTypes.LOGGED;
-            }
-            else {
+            } else {
                 try {
                     const ret = JSON.parse(spawn.stdout);
                     switch (ret.name) {
@@ -13317,8 +13315,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
                             if (ret.message == 'Sandbox status is Processing; timed out waiting for completion.')
                                 return returnTypes.PROCESSING;
                     }
-                }
-                catch {}
+                } catch {}
             }
         }
     }
@@ -13555,8 +13552,7 @@ const createCloneSandbox = function (args){
         case execCommand.returnTypes.NOTFOUND:
             if (args.sandboxCreationType == 'new') { //default is clone
                 createSandbox(args);
-            }
-            else {
+            } else {
                 cloneSandbox(args);
             }
             break;

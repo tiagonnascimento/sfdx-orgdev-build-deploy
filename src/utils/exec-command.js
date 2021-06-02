@@ -30,8 +30,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
         if (process == 'checkSandbox') {
             if (spawn.status == 0) {
                 return returnTypes.LOGGED;
-            }
-            else {
+            } else {
                 try {
                     const ret = JSON.parse(spawn.stdout);
                     switch (ret.name) {
@@ -43,8 +42,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
                             if (ret.message == 'Sandbox status is Processing; timed out waiting for completion.')
                                 return returnTypes.PROCESSING;
                     }
-                }
-                catch {}
+                } catch {}
             }
         }
     }

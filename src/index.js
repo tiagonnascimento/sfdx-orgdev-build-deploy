@@ -86,7 +86,6 @@ try {
     default:
       core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
   }
-}
-catch (error) {
+} catch (error) {
   core.setFailed(error.message);
 }
