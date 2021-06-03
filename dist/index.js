@@ -13224,6 +13224,7 @@ try {
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       deploy.username = 'sfdc';
       deploy.sandbox = false;
+      deploy.test = core.getInput('test') === 'true';
       sfdx.deployer(deploy);
 
       //Authenticate in sandbox
@@ -13597,14 +13598,12 @@ const deployer = function (args){
         args.testlevel = 'NoTestRun';
     }
 
-    //Deploy/Checkonly to Org
-    deploy(args);
-
-    //Destructive deploy
-    destructiveDeploy(args);
-
-    //Executes data factory script
-    dataFactory(args);
+    if (args.sandbox || !args.test){
+        //Deploy/Checkonly to Org
+        deploy(args);
+        destructiveDeploy(args);
+        dataFactory(args);
+    }
 
     if (!args.sandbox){
         core.setOutput('deployInProd','1');

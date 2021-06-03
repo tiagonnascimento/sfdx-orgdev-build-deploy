@@ -221,14 +221,12 @@ const deployer = function (args){
         args.testlevel = 'NoTestRun';
     }
 
-    //Deploy/Checkonly to Org
-    deploy(args);
-
-    //Destructive deploy
-    destructiveDeploy(args);
-
-    //Executes data factory script
-    dataFactory(args);
+    if (args.sandbox || !args.test){
+        //Deploy/Checkonly to Org
+        deploy(args);
+        destructiveDeploy(args);
+        dataFactory(args);
+    }
 
     if (!args.sandbox){
         core.setOutput('deployInProd','1');
