@@ -7,6 +7,17 @@ const returnTypes = {
     PROCESSING: 'processing'
 }
 
+const getErrorMessage = function(spawn) {
+    let errorMessage = '';
+    if (spawn.error !== undefined) {
+        errorMessage = spawn.error;
+    } 
+    if (spawn.stderr !== undefined) {
+        errorMessage += " " + spawn.stderr.toString();
+    }
+    return errorMessage;
+}
+
 module.exports.returnTypes = returnTypes;
 module.exports.run = function(command, args, workingFolder = null, process = null) {
     var extraParams = {};
@@ -27,11 +38,11 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + spawn.stdout.toString());
 
-        if (process == 'checkSandbox') {
-            if (spawn.status == 0) {
-                return returnTypes.LOGGED;
-            } else {
-                try {
+        switch (process) {
+            case 'authInSandbox':
+                if (spawn.status == 0) {
+                    return returnTypes.LOGGED;
+                } else {
                     const ret = JSON.parse(spawn.stdout);
                     switch (ret.name) {
                         case 'AuthInfoOverwriteError':
@@ -39,23 +50,21 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
                         case 'SandboxProcessNotFoundBySandboxName':
                             return returnTypes.NOTFOUND;
                         case 'pollingTimeout':
-                            if (ret.message == 'Sandbox status is Processing; timed out waiting for completion.')
+                            if (ret.message == 'Sandbox status is Processing; timed out waiting for completion.') {
                                 return returnTypes.PROCESSING;
+                            }
+                        default:
+                            return getErrorMessage(spawn);
                     }
-                } catch {}
-            }
+                }
+                break;
+            case 'deleteSandbox':
+                return spawn.status;
         }
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
-        var errorMessage = '';
-        if (spawn.error !== undefined) {
-            errorMessage = spawn.error;
-        } 
-        
-        if (spawn.stderr !== undefined) {
-            errorMessage += " " + spawn.stderr.toString();
-        }
+        const errorMessage = getErrorMessage(spawn);
         core.error(errorMessage);
         throw Error(errorMessage);
     }

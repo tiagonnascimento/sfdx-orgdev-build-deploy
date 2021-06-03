@@ -13212,7 +13212,7 @@ try {
     case 'deploy':
       const deploy = {};
 
-      //Load deploy params
+      //Load deploy params and deploy
       deploy.defaultSourcePath = core.getInput('default_source_path');
       deploy.defaultTestClass = core.getInput('default_test_class');
       deploy.manifestToDeploy = core.getInput('manifest_path');
@@ -13222,25 +13222,25 @@ try {
       deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
       deploy.testlevel = core.getInput('deploy_testlevel');
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
+      deploy.username = 'sfdc';
+      deploy.sandbox = false;
+      sfdx.deployer(deploy);
 
-      //Deploy/Checkonly to Org
-      sfdx.deploy(deploy);
-
-      //Destructive deploy
-      sfdx.destructiveDeploy(deploy);
-
-      //Executes data factory script
-      sfdx.dataFactory(deploy);
-
-      //Create or clone sandbox
+      //Authenticate in sandbox
       const sandboxArgs = {};
       sandboxArgs.sandboxCreationType = core.getInput('sandbox_creation_type') || 'clone';
       sandboxArgs.sandboxName = core.getInput('sandbox_name');
       sandboxArgs.sourceSandboxName = core.getInput('source_sandbox_name') || 'masterdev';
-      sfdx.createCloneSandbox(sandboxArgs);
+      sandboxArgs.deployInProd = !deploy.checkonly;
+      deploy.username = sfdx.authInSandbox(sandboxArgs);
 
-      //Deploy to Sandbox
-      //sfdx.deploy(deploy,sandboxArgs.sandboxName);
+      //Deploy in sandbox or delete if it was deploy in prod
+      if (deploy.checkonly) { 
+        deploy.sandbox = true;
+        sfdx.deployer(deploy);
+      } else if (deploy.username != undefined) {
+        sfdx.deleteSandbox(deploy.username);
+      }
       break;
     case 'retrieve':
       const retrieveArgs = {};
@@ -13280,6 +13280,17 @@ const returnTypes = {
     PROCESSING: 'processing'
 }
 
+const getErrorMessage = function(spawn) {
+    let errorMessage = '';
+    if (spawn.error !== undefined) {
+        errorMessage = spawn.error;
+    } 
+    if (spawn.stderr !== undefined) {
+        errorMessage += " " + spawn.stderr.toString();
+    }
+    return errorMessage;
+}
+
 module.exports.returnTypes = returnTypes;
 module.exports.run = function(command, args, workingFolder = null, process = null) {
     var extraParams = {};
@@ -13300,11 +13311,11 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
         core.info("With the following args: " + args.toString());
         core.info("Having the following return: " + spawn.stdout.toString());
 
-        if (process == 'checkSandbox') {
-            if (spawn.status == 0) {
-                return returnTypes.LOGGED;
-            } else {
-                try {
+        switch (process) {
+            case 'authInSandbox':
+                if (spawn.status == 0) {
+                    return returnTypes.LOGGED;
+                } else {
                     const ret = JSON.parse(spawn.stdout);
                     switch (ret.name) {
                         case 'AuthInfoOverwriteError':
@@ -13312,23 +13323,21 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
                         case 'SandboxProcessNotFoundBySandboxName':
                             return returnTypes.NOTFOUND;
                         case 'pollingTimeout':
-                            if (ret.message == 'Sandbox status is Processing; timed out waiting for completion.')
+                            if (ret.message == 'Sandbox status is Processing; timed out waiting for completion.') {
                                 return returnTypes.PROCESSING;
+                            }
+                        default:
+                            return getErrorMessage(spawn);
                     }
-                } catch {}
-            }
+                }
+                break;
+            case 'deleteSandbox':
+                return spawn.status;
         }
     }
 
     if (spawn.error !== undefined || spawn.status !== 0) {
-        var errorMessage = '';
-        if (spawn.error !== undefined) {
-            errorMessage = spawn.error;
-        } 
-        
-        if (spawn.stderr !== undefined) {
-            errorMessage += " " + spawn.stderr.toString();
-        }
+        const errorMessage = getErrorMessage(spawn);
         core.error(errorMessage);
         throw Error(errorMessage);
     }
@@ -13460,7 +13469,7 @@ let deploy = function (deploy){
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
 
-        var argsDeploy = ['force:source:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', 'sfdc', '--json'];
+        var argsDeploy = ['force:source:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', deploy.username, '--json'];
 
         if(deploy.checkonly){
             core.info("===== CHECH ONLY ====");
@@ -13512,7 +13521,7 @@ let destructiveDeploy = function (deploy){
     core.info("=== destructiveDeploy ===");
     if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
         core.info('=== Applying destructive changes ===')
-        var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', 'sfdc', '--wait', deploy.deployWaitTime, '-g', '--json'];
+        var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', deploy.username, '--wait', deploy.deployWaitTime, '-g', '--json'];
         if (deploy.checkonly) {
             argsDestructive.push('--checkonly');
         }
@@ -13524,7 +13533,7 @@ let dataFactory = function (deploy){
     core.info("=== dataFactory ===");
     if (deploy.dataFactory  && !deploy.checkonly) {
         core.info('Executing data factory');
-        execCommand.run('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', 'sfdc']);
+        execCommand.run('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', deploy.username]);
     }
 };
 
@@ -13540,28 +13549,65 @@ const cloneSandbox = function (args){
 	execCommand.run('sfdx', commandArgs);
 }
 
-const createCloneSandbox = function (args){
-    core.info("=== checkSandbox ===");
-    const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2'];
-	const ret = execCommand.run('sfdx', commandArgs, null,'checkSandbox');
+const authInSandbox = function (args, secondRun = false){
+    core.info("=== authInSandbox ===");
+    const alias = 'sfdc.' + args.sandboxName.toLowerCase();
+    const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2',  '--setalias', alias];
+	const execReturn = execCommand.run('sfdx', commandArgs, null,'authInSandbox');
 
-    switch(ret) {
+    if (args.deployInProd && execReturn != execCommand.returnTypes.LOGGED) {
+        return undefined;
+    }
+
+    switch(execReturn) {
         case execCommand.returnTypes.LOGGED:
-            //already logged, do nothing.
-            break;
+            return alias;
         case execCommand.returnTypes.NOTFOUND:
-            if (args.sandboxCreationType == 'new') { //default is clone
+            if (secondRun) {
+                const errorMessage = "Error creating or cloning sandbox.";
+                core.error(errorMessage);
+                throw Error(errorMessage);
+            }
+            if (args.sandboxCreationType == 'new') {
                 createSandbox(args);
             } else {
                 cloneSandbox(args);
             }
-            break;
+            core.setOutput('sandboxCreated', '1');
+            return authInSandbox(args, true);
         case execCommand.returnTypes.PROCESSING:
             const errorMessage = "Sandbox is processing, can't deploy now into sandbox.";
             core.error(errorMessage);
             throw Error(errorMessage);
         default:
-            throw Error('Return not expected.');
+            throw Error(execReturn);
+    }
+}
+
+const deleteSandbox = function (username){
+	core.info("=== deleteSandbox ===");
+	const commandArgs = ['force:org:delete', '-u', username, '--json'];
+	const error = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox');
+    core.setOutput('errorDeletingSandbox',error);
+}
+
+const deployer = function (args){
+    if (args.sandbox) {
+        args.checkonly = false;
+        args.testlevel = 'NoTestRun';
+    }
+
+    //Deploy/Checkonly to Org
+    sfdx.deploy(args);
+
+    //Destructive deploy
+    sfdx.destructiveDeploy(args);
+
+    //Executes data factory script
+    sfdx.dataFactory(args);
+
+    if (!args.sandbox){
+        core.setOutput('deployInProd','1');
     }
 }
 
@@ -13577,13 +13623,12 @@ const listOrgs = function(args){
     execCommand.run('sfdx', commandArgs);
 }
 
-module.exports.deploy = deploy;
 module.exports.login = login;
-module.exports.destructiveDeploy = destructiveDeploy;
-module.exports.dataFactory = dataFactory;
+module.exports.deployer = deployer;
 module.exports.retrieve = retrieve;
+module.exports.authInSandbox = authInSandbox;
 module.exports.createSandbox = createSandbox;
-module.exports.createCloneSandbox = createCloneSandbox;
+module.exports.deleteSandbox = deleteSandbox;
 module.exports.listOrgs = listOrgs;
 
 /***/ }),
