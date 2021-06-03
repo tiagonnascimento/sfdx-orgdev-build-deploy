@@ -13598,8 +13598,8 @@ const deployer = function (args){
         args.testlevel = 'NoTestRun';
     }
 
-    if (args.sandbox || !args.test){
-        //Deploy/Checkonly to Org
+    //Deploy/Checkonly to Org
+    if (args.sandbox || !args.test || args.checkonly){
         deploy(args);
         destructiveDeploy(args);
         dataFactory(args);
