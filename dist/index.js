@@ -13545,7 +13545,7 @@ const createSandbox = function (args){
 
 const cloneSandbox = function (args){
 	core.info("=== cloneSandbox ===");
-	const commandArgs = ['force:org:clone', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'sourceSandboxName='+args.sourceSandboxName, '-u', 'sfdc', '--json', '-w', '60'];
+	const commandArgs = ['force:org:clone', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'SourceSandboxName='+args.sourceSandboxName, '-u', 'sfdc', '--json', '-w', '60'];
 	execCommand.run('sfdx', commandArgs);
 }
 
