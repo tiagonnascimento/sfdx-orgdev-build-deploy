@@ -222,13 +222,13 @@ const deployer = function (args){
     }
 
     //Deploy/Checkonly to Org
-    sfdx.deploy(args);
+    deploy(args);
 
     //Destructive deploy
-    sfdx.destructiveDeploy(args);
+    destructiveDeploy(args);
 
     //Executes data factory script
-    sfdx.dataFactory(args);
+    dataFactory(args);
 
     if (!args.sandbox){
         core.setOutput('deployInProd','1');
