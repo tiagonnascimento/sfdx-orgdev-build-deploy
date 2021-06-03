@@ -222,13 +222,11 @@ const deployer = function (args){
     }
 
     //Deploy/Checkonly to Org
-    deploy(args);
-
-    //Destructive deploy
-    destructiveDeploy(args);
-
-    //Executes data factory script
-    dataFactory(args);
+    if (args.sandbox || !args.test || args.checkonly){
+        deploy(args);
+        destructiveDeploy(args);
+        dataFactory(args);
+    }
 
     if (!args.sandbox){
         core.setOutput('deployInProd','1');

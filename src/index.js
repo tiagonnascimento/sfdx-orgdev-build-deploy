@@ -48,6 +48,7 @@ try {
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       deploy.username = 'sfdc';
       deploy.sandbox = false;
+      deploy.test = core.getInput('test') === 'true';
       sfdx.deployer(deploy);
 
       //Authenticate in sandbox
