@@ -179,7 +179,7 @@ const authInSandbox = function (args, secondRun = false){
     const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2',  '--setalias', alias];
 	const execReturn = execCommand.run('sfdx', commandArgs, null,'authInSandbox');
 
-    if (args.merged && execReturn != execCommand.returnTypes.LOGGED) {
+    if (args.deployInProd && execReturn != execCommand.returnTypes.LOGGED) {
         return undefined;
     }
 
@@ -197,6 +197,7 @@ const authInSandbox = function (args, secondRun = false){
             } else {
                 cloneSandbox(args);
             }
+            core.setOutput('sandboxCreated', '1');
             return authInSandbox(args, true);
         case execCommand.returnTypes.PROCESSING:
             const errorMessage = "Sandbox is processing, can't deploy now into sandbox.";
@@ -210,8 +211,28 @@ const authInSandbox = function (args, secondRun = false){
 const deleteSandbox = function (username){
 	core.info("=== deleteSandbox ===");
 	const commandArgs = ['force:org:delete', '-u', username, '--json'];
-	const deleted = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox') == 0 ? 1 : 0;
-    core.setOutput('sandboxDeleted',deleted);
+	const error = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox');
+    core.setOutput('errorDeletingSandbox',error);
+}
+
+const deployer = function (args){
+    if (args.sandbox) {
+        args.checkonly = false;
+        args.testlevel = 'NoTestRun';
+    }
+
+    //Deploy/Checkonly to Org
+    sfdx.deploy(args);
+
+    //Destructive deploy
+    sfdx.destructiveDeploy(args);
+
+    //Executes data factory script
+    sfdx.dataFactory(args);
+
+    if (!args.sandbox){
+        core.setOutput('deployInProd','1');
+    }
 }
 
 const listOrgs = function(args){
@@ -226,12 +247,10 @@ const listOrgs = function(args){
     execCommand.run('sfdx', commandArgs);
 }
 
-module.exports.deploy = deploy;
 module.exports.login = login;
-module.exports.destructiveDeploy = destructiveDeploy;
-module.exports.dataFactory = dataFactory;
+module.exports.deployer = deployer;
 module.exports.retrieve = retrieve;
+module.exports.authInSandbox = authInSandbox;
 module.exports.createSandbox = createSandbox;
 module.exports.deleteSandbox = deleteSandbox;
-module.exports.authInSandbox = authInSandbox;
 module.exports.listOrgs = listOrgs;

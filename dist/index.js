@@ -13212,7 +13212,7 @@ try {
     case 'deploy':
       const deploy = {};
 
-      //Load deploy params
+      //Load deploy params and deploy
       deploy.defaultSourcePath = core.getInput('default_source_path');
       deploy.defaultTestClass = core.getInput('default_test_class');
       deploy.manifestToDeploy = core.getInput('manifest_path');
@@ -13223,32 +13223,21 @@ try {
       deploy.testlevel = core.getInput('deploy_testlevel');
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       deploy.username = 'sfdc';
+      deploy.sandbox = false;
+      sfdx.deployer(deploy);
 
-      //Deploy/Checkonly to Org
-      sfdx.deploy(deploy);
-
-      //Destructive deploy
-      sfdx.destructiveDeploy(deploy);
-
-      //Executes data factory script
-      sfdx.dataFactory(deploy);
-
-      //Authenticate in sandbox - create or clone sandbox if don't exist
+      //Authenticate in sandbox
       const sandboxArgs = {};
       sandboxArgs.sandboxCreationType = core.getInput('sandbox_creation_type') || 'clone';
       sandboxArgs.sandboxName = core.getInput('sandbox_name');
       sandboxArgs.sourceSandboxName = core.getInput('source_sandbox_name') || 'masterdev';
-      sandboxArgs.merged = !deploy.checkonly;
+      sandboxArgs.deployInProd = !deploy.checkonly;
       deploy.username = sfdx.authInSandbox(sandboxArgs);
 
-      //not applied to prod, it's necessary to deploy in sandbox
+      //Deploy in sandbox or delete if it was deploy in prod
       if (deploy.checkonly) { 
-        //Deploy to Sandbox
-        deploy.checkonly = false;
-        deploy.testlevel = 'NoTestRun';
-        sfdx.deploy(deploy);
-        sfdx.destructiveDeploy(deploy);
-        sfdx.dataFactory(deploy);
+        deploy.sandbox = true;
+        sfdx.deployer(deploy);
       } else if (deploy.username != undefined) {
         sfdx.deleteSandbox(deploy.username);
       }
@@ -13566,7 +13555,7 @@ const authInSandbox = function (args, secondRun = false){
     const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2',  '--setalias', alias];
 	const execReturn = execCommand.run('sfdx', commandArgs, null,'authInSandbox');
 
-    if (args.merged && execReturn != execCommand.returnTypes.LOGGED) {
+    if (args.deployInProd && execReturn != execCommand.returnTypes.LOGGED) {
         return undefined;
     }
 
@@ -13584,6 +13573,7 @@ const authInSandbox = function (args, secondRun = false){
             } else {
                 cloneSandbox(args);
             }
+            core.setOutput('sandboxCreated', '1');
             return authInSandbox(args, true);
         case execCommand.returnTypes.PROCESSING:
             const errorMessage = "Sandbox is processing, can't deploy now into sandbox.";
@@ -13597,8 +13587,28 @@ const authInSandbox = function (args, secondRun = false){
 const deleteSandbox = function (username){
 	core.info("=== deleteSandbox ===");
 	const commandArgs = ['force:org:delete', '-u', username, '--json'];
-	const deleted = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox') == 0 ? 1 : 0;
-    core.setOutput('sandboxDeleted',deleted);
+	const error = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox');
+    core.setOutput('errorDeletingSandbox',error);
+}
+
+const deployer = function (args){
+    if (args.sandbox) {
+        args.checkonly = false;
+        args.testlevel = 'NoTestRun';
+    }
+
+    //Deploy/Checkonly to Org
+    sfdx.deploy(args);
+
+    //Destructive deploy
+    sfdx.destructiveDeploy(args);
+
+    //Executes data factory script
+    sfdx.dataFactory(args);
+
+    if (!args.sandbox){
+        core.setOutput('deployInProd','1');
+    }
 }
 
 const listOrgs = function(args){
@@ -13613,14 +13623,12 @@ const listOrgs = function(args){
     execCommand.run('sfdx', commandArgs);
 }
 
-module.exports.deploy = deploy;
 module.exports.login = login;
-module.exports.destructiveDeploy = destructiveDeploy;
-module.exports.dataFactory = dataFactory;
+module.exports.deployer = deployer;
 module.exports.retrieve = retrieve;
+module.exports.authInSandbox = authInSandbox;
 module.exports.createSandbox = createSandbox;
 module.exports.deleteSandbox = deleteSandbox;
-module.exports.authInSandbox = authInSandbox;
 module.exports.listOrgs = listOrgs;
 
 /***/ }),
