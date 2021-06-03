@@ -93,7 +93,7 @@ let deploy = function (deploy){
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
 
-        var argsDeploy = ['force:source:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', 'sfdc', '--json'];
+        var argsDeploy = ['force:source:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', deploy.username, '--json'];
 
         if(deploy.checkonly){
             core.info("===== CHECH ONLY ====");
@@ -145,7 +145,7 @@ let destructiveDeploy = function (deploy){
     core.info("=== destructiveDeploy ===");
     if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
         core.info('=== Applying destructive changes ===')
-        var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', 'sfdc', '--wait', deploy.deployWaitTime, '-g', '--json'];
+        var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', deploy.username, '--wait', deploy.deployWaitTime, '-g', '--json'];
         if (deploy.checkonly) {
             argsDestructive.push('--checkonly');
         }
@@ -157,7 +157,7 @@ let dataFactory = function (deploy){
     core.info("=== dataFactory ===");
     if (deploy.dataFactory  && !deploy.checkonly) {
         core.info('Executing data factory');
-        execCommand.run('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', 'sfdc']);
+        execCommand.run('sfdx', ['force:apex:execute', '-f', deploy.dataFactory, '-u', deploy.username]);
     }
 };
 
@@ -173,29 +173,45 @@ const cloneSandbox = function (args){
 	execCommand.run('sfdx', commandArgs);
 }
 
-const createCloneSandbox = function (args){
-    core.info("=== checkSandbox ===");
-    const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2'];
-	const ret = execCommand.run('sfdx', commandArgs, null,'checkSandbox');
+const authInSandbox = function (args, secondRun = false){
+    core.info("=== authInSandbox ===");
+    const alias = 'sfdc.' + args.sandboxName.toLowerCase();
+    const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2',  '--setalias', alias];
+	const execReturn = execCommand.run('sfdx', commandArgs, null,'authInSandbox');
 
-    switch(ret) {
+    if (args.merged && execReturn != execCommand.returnTypes.LOGGED) {
+        return undefined;
+    }
+
+    switch(execReturn) {
         case execCommand.returnTypes.LOGGED:
-            //already logged, do nothing.
-            break;
+            return alias;
         case execCommand.returnTypes.NOTFOUND:
-            if (args.sandboxCreationType == 'new') { //default is clone
+            if (secondRun) {
+                const errorMessage = "Error creating or cloning sandbox.";
+                core.error(errorMessage);
+                throw Error(errorMessage);
+            }
+            if (args.sandboxCreationType == 'new') {
                 createSandbox(args);
             } else {
                 cloneSandbox(args);
             }
-            break;
+            return authInSandbox(args, true);
         case execCommand.returnTypes.PROCESSING:
             const errorMessage = "Sandbox is processing, can't deploy now into sandbox.";
             core.error(errorMessage);
             throw Error(errorMessage);
         default:
-            throw Error('Return not expected.');
+            throw Error(execReturn);
     }
+}
+
+const deleteSandbox = function (username){
+	core.info("=== deleteSandbox ===");
+	const commandArgs = ['force:org:delete', '-u', username, '--json'];
+	const deleted = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox') == 0 ? 1 : 0;
+    core.setOutput('sandboxDeleted',deleted);
 }
 
 const listOrgs = function(args){
@@ -216,5 +232,6 @@ module.exports.destructiveDeploy = destructiveDeploy;
 module.exports.dataFactory = dataFactory;
 module.exports.retrieve = retrieve;
 module.exports.createSandbox = createSandbox;
-module.exports.createCloneSandbox = createCloneSandbox;
+module.exports.deleteSandbox = deleteSandbox;
+module.exports.authInSandbox = authInSandbox;
 module.exports.listOrgs = listOrgs;

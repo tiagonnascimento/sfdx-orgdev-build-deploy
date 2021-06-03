@@ -46,6 +46,7 @@ try {
       deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
       deploy.testlevel = core.getInput('deploy_testlevel');
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
+      deploy.username = 'sfdc';
 
       //Deploy/Checkonly to Org
       sfdx.deploy(deploy);
@@ -56,15 +57,25 @@ try {
       //Executes data factory script
       sfdx.dataFactory(deploy);
 
-      //Create or clone sandbox
+      //Authenticate in sandbox - create or clone sandbox if don't exist
       const sandboxArgs = {};
       sandboxArgs.sandboxCreationType = core.getInput('sandbox_creation_type') || 'clone';
       sandboxArgs.sandboxName = core.getInput('sandbox_name');
       sandboxArgs.sourceSandboxName = core.getInput('source_sandbox_name') || 'masterdev';
-      sfdx.createCloneSandbox(sandboxArgs);
+      sandboxArgs.merged = !deploy.checkonly;
+      deploy.username = sfdx.authInSandbox(sandboxArgs);
 
-      //Deploy to Sandbox
-      //sfdx.deploy(deploy,sandboxArgs.sandboxName);
+      //not applied to prod, it's necessary to deploy in sandbox
+      if (deploy.checkonly) { 
+        //Deploy to Sandbox
+        deploy.checkonly = false;
+        deploy.testlevel = 'NoTestRun';
+        sfdx.deploy(deploy);
+        sfdx.destructiveDeploy(deploy);
+        sfdx.dataFactory(deploy);
+      } else if (deploy.username != undefined) {
+        sfdx.deleteSandbox(deploy.username);
+      }
       break;
     case 'retrieve':
       const retrieveArgs = {};
