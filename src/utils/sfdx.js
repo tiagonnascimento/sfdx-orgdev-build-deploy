@@ -96,7 +96,7 @@ let deploy = function (deploy){
         var argsDeploy = ['force:source:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', deploy.username, '--json'];
 
         if(deploy.checkonly){
-            core.info("===== CHECH ONLY ====");
+            core.info("===== CHECK ONLY ====");
             argsDeploy.push('--checkonly');
         }
 
@@ -211,9 +211,9 @@ const authInSandbox = function (args){
 
 const deleteSandbox = function (username){
 	core.info("=== deleteSandbox ===");
-	const commandArgs = ['force:org:delete', '-u', username, '--json'];
-	const error = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox');
-    core.setOutput('errorDeletingSandbox',error);
+	const commandArgs = ['force:org:delete', '-u', username, '--json','-p'];
+	const execReturn = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox');
+    core.setOutput('errorDeletingSandbox',execReturn);
 }
 
 const deployer = function (args){
