@@ -161,22 +161,20 @@ let dataFactory = function (deploy){
     }
 };
 
-const createSandbox = function (args,alias = null){
-	core.info("=== createSandbox ===");
-	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '-w', '60'];
-    if (alias != null){
-        commandArgs.push('--setalias', alias);
+const deployer = function (args){
+    if (args.sandbox) {
+        args.checkonly = false;
+        args.testlevel = 'NoTestRun';
     }
-	execCommand.run('sfdx', commandArgs);
-}
 
-const cloneSandbox = function (args,alias = null){
-	core.info("=== cloneSandbox ===");
-	const commandArgs = ['force:org:clone', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'SourceSandboxName='+args.sourceSandboxName, '-u', 'sfdc', '--json', '-w', '60'];
-    if (alias != null){
-        commandArgs.push('--setalias', alias);
+    //Deploy/Checkonly to Org
+    deploy(args);
+    destructiveDeploy(args);
+    dataFactory(args);
+
+    if (!args.sandbox && !args.checkonly){
+        core.setOutput('deployInProd','1');
     }
-	execCommand.run('sfdx', commandArgs);
 }
 
 const authInSandbox = function (args){
@@ -209,41 +207,29 @@ const authInSandbox = function (args){
     }
 }
 
+const createSandbox = function (args,alias = null){
+	core.info("=== createSandbox ===");
+	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '-w', '60'];
+    if (alias != null){
+        commandArgs.push('--setalias', alias);
+    }
+	execCommand.run('sfdx', commandArgs);
+}
+
+const cloneSandbox = function (args,alias = null){
+	core.info("=== cloneSandbox ===");
+	const commandArgs = ['force:org:clone', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'SourceSandboxName='+args.sourceSandboxName, '-u', 'sfdc', '--json', '-w', '60'];
+    if (alias != null){
+        commandArgs.push('--setalias', alias);
+    }
+	execCommand.run('sfdx', commandArgs);
+}
+
 const deleteSandbox = function (username){
 	core.info("=== deleteSandbox ===");
 	const commandArgs = ['force:org:delete', '-u', username, '--json','-p'];
 	const execReturn = execCommand.run('sfdx', commandArgs, null, 'deleteSandbox');
     core.setOutput('errorDeletingSandbox',execReturn);
-}
-
-const deployer = function (args){
-    if (args.sandbox) {
-        args.checkonly = false;
-        args.testlevel = 'NoTestRun';
-    }
-
-    //Deploy/Checkonly to Org
-    if (args.sandbox || !args.test || args.checkonly){
-        deploy(args);
-        destructiveDeploy(args);
-        dataFactory(args);
-    }
-
-    if (!args.sandbox && !args.checkonly){
-        core.setOutput('deployInProd','1');
-    }
-}
-
-const listOrgs = function(args){
-    core.info("=== listOrgs ===");
-    let commandArgs = ['auth:list', '--json'];
-    execCommand.run('sfdx', commandArgs);
-
-    commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2'];
-	execCommand.run('sfdx', commandArgs);
-
-    commandArgs = ['auth:list', '--json'];
-    execCommand.run('sfdx', commandArgs);
 }
 
 module.exports.login = login;
@@ -252,4 +238,3 @@ module.exports.retrieve = retrieve;
 module.exports.authInSandbox = authInSandbox;
 module.exports.createSandbox = createSandbox;
 module.exports.deleteSandbox = deleteSandbox;
-module.exports.listOrgs = listOrgs;
