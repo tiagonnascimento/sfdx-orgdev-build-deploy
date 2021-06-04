@@ -13606,7 +13606,7 @@ const deployer = function (args){
         dataFactory(args);
     }
 
-    if (!args.sandbox){
+    if (!args.sandbox && !args.checkonly){
         core.setOutput('deployInProd','1');
     }
 }
