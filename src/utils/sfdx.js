@@ -161,22 +161,28 @@ let dataFactory = function (deploy){
     }
 };
 
-const createSandbox = function (args){
+const createSandbox = function (args,alias = null){
 	core.info("=== createSandbox ===");
 	const commandArgs = ['force:org:create', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'licenseType=Developer', '-u', 'sfdc', '--json', '-w', '60'];
+    if (alias != null){
+        commandArgs.push('--setalias', alias);
+    }
 	execCommand.run('sfdx', commandArgs);
 }
 
-const cloneSandbox = function (args){
+const cloneSandbox = function (args,alias = null){
 	core.info("=== cloneSandbox ===");
 	const commandArgs = ['force:org:clone', '-t', 'sandbox', 'sandboxName='+args.sandboxName, 'SourceSandboxName='+args.sourceSandboxName, '-u', 'sfdc', '--json', '-w', '60'];
+    if (alias != null){
+        commandArgs.push('--setalias', alias);
+    }
 	execCommand.run('sfdx', commandArgs);
 }
 
-const authInSandbox = function (args, secondRun = false){
+const authInSandbox = function (args){
     core.info("=== authInSandbox ===");
     const alias = 'sfdc.' + args.sandboxName.toLowerCase();
-    const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2',  '--setalias', alias];
+    const commandArgs = ['force:org:status', '-n', args.sandboxName, '-u', 'sfdc', '--json', '-w', '2', '--setalias', alias];
 	const execReturn = execCommand.run('sfdx', commandArgs, null,'authInSandbox');
 
     if (args.deployInProd && execReturn != execCommand.returnTypes.LOGGED) {
@@ -187,18 +193,13 @@ const authInSandbox = function (args, secondRun = false){
         case execCommand.returnTypes.LOGGED:
             return alias;
         case execCommand.returnTypes.NOTFOUND:
-            if (secondRun) {
-                const errorMessage = "Error creating or cloning sandbox.";
-                core.error(errorMessage);
-                throw Error(errorMessage);
-            }
             if (args.sandboxCreationType == 'new') {
-                createSandbox(args);
+                createSandbox(args,alias);
             } else {
-                cloneSandbox(args);
+                cloneSandbox(args,alias);
             }
             core.setOutput('sandboxCreated', '1');
-            return authInSandbox(args, true);
+            return alias;
         case execCommand.returnTypes.PROCESSING:
             const errorMessage = "Sandbox is processing, can't deploy now into sandbox.";
             core.error(errorMessage);
