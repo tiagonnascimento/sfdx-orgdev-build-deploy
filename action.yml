@@ -80,10 +80,6 @@ inputs:
         description: 'Accepted types: new or clone. Default is clone.'
         required: false
 
-    test:
-        description: 'Accepted values: true or false. If is test, will not deploy to prod.'
-        required: false;
-
 runs:
     using: 'node12'
     main: 'dist/index.js'
