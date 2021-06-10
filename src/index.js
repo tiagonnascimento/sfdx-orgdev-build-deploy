@@ -50,21 +50,24 @@ try {
       deploy.sandbox = false;
       sfdx.deployer(deploy);
 
-      //Authenticate in sandbox
-      const sandboxArgs = {};
-      sandboxArgs.sandboxCreationType = core.getInput('sandbox_creation_type') || 'clone';
-      sandboxArgs.sandboxName = core.getInput('sandbox_name');
-      sandboxArgs.sourceSandboxName = core.getInput('source_sandbox_name') || 'masterdev';
-      sandboxArgs.deployInProd = !deploy.checkonly;
-      deploy.username = sfdx.authInSandbox(sandboxArgs);
+      if (core.getInput('sandbox_name')) {
+        //Authenticate in sandbox
+        const sandboxArgs = {};
+        sandboxArgs.sandboxCreationType = core.getInput('sandbox_creation_type') || 'clone';
+        sandboxArgs.sandboxName = core.getInput('sandbox_name');
+        sandboxArgs.sourceSandboxName = core.getInput('source_sandbox_name') || 'masterdev';
+        sandboxArgs.deployInProd = !deploy.checkonly;
+        deploy.username = sfdx.authInSandbox(sandboxArgs);
 
-      //Deploy in sandbox or delete if it was deploy in prod
-      if (deploy.checkonly) { 
-        deploy.sandbox = true;
-        sfdx.deployer(deploy);
-      } else if (deploy.username != undefined) {
-        sfdx.deleteSandbox(deploy.username);
+        //Deploy in sandbox or delete if it was deploy in prod
+        if (deploy.checkonly) { 
+          deploy.sandbox = true;
+          sfdx.deployer(deploy);
+        } else if (deploy.username != undefined) {
+          sfdx.deleteSandbox(deploy.username);
+        }
       }
+
       break;
     case 'retrieve':
       const retrieveArgs = {};
