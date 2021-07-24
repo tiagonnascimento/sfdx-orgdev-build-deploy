@@ -23,6 +23,7 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
             }
         }
     });
+    core.info(classes);
     if(classes=="*"){
         classes = [];
         const filenameRegex = /^.*(\/[\w\d_-].*).cls$/i;
