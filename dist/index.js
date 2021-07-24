@@ -16621,7 +16621,7 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
         const filenameRegex = /^.*(\/[\w\d_-].*).cls$/i;
         var foundClasses = glob.sync(classesPath+"/*.cls");
         for(var i = 0; i < foundClasses.length; i++){
-            classes.push(foundClasses.match(filenameRegex)[1]);
+            classes.push(foundClasses[i].match(filenameRegex)[1]);
         }
     }
     if(classes){
