@@ -1,4 +1,5 @@
 const core = require('@actions/core')
+const glob = require('glob')
 const path = require('path');
 const execCommand = require('./exec-command.js');
 const fs = require('fs');
@@ -22,7 +23,14 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
             }
         }
     });
-
+    if(classes=="*"){
+        classes = [];
+        const filenameRegex = /^.*(\/[\w\d_-].*).cls$/i;
+        var foundClasses = glob.sync(classesPath+"/*.cls");
+        for(var i = 0; i < foundClasses.length; i++){
+            classes.push(foundClasses.match(filenameRegex)[1]);
+        }
+    }
     if(classes){
         for(var i = 0; i < classes.length; i++){
             classNameTmp = classes[i];
