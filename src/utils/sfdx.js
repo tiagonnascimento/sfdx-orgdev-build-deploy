@@ -93,10 +93,6 @@ let deploy = function (deploy){
     
                 argsDeploy.push("--runtests");
                 argsDeploy.push(testClassesTmp);
-            }else{
-                argsDeploy.push("--testlevel");
-                argsDeploy.push("RunLocalTests");
-            }
         }else{
             argsDeploy.push("--testlevel");
             argsDeploy.push(deploy.testlevel);
