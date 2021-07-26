@@ -16619,10 +16619,10 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
     core.info(classes);
     if(classes=="*"){
         classes = [];
-        const filenameRegex = /^.*(\/[\w\d_-].*).cls$/i;
+        const filenameRegex = /^.*\/([\w\d_-].*).cls$/i;
         var foundClasses = glob.sync(classesPath+"/*.cls");
         for(var i = 0; i < foundClasses.length; i++){
-            classes.push(foundClasses.match(filenameRegex)[1]);
+            classes.push(foundClasses[i].match(filenameRegex)[1]);
         }
     }
     if(classes){
@@ -16681,15 +16681,11 @@ let deploy = function (deploy){
 
             core.info("classes are : "  + testClassesTmp);
             
+            argsDeploy.push("--testlevel");
+            argsDeploy.push(deploy.testlevel);
             if(testClassesTmp){
-                argsDeploy.push("--testlevel");
-                argsDeploy.push(deploy.testlevel);
-    
                 argsDeploy.push("--runtests");
                 argsDeploy.push(testClassesTmp);
-            }else{
-                argsDeploy.push("--testlevel");
-                argsDeploy.push("RunLocalTests");
             }
         }else{
             argsDeploy.push("--testlevel");
