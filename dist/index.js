@@ -16681,9 +16681,9 @@ let deploy = function (deploy){
 
             core.info("classes are : "  + testClassesTmp);
             
-            argsDeploy.push("--testlevel");
-            argsDeploy.push(deploy.testlevel);
             if(testClassesTmp){
+                argsDeploy.push("--testlevel");
+                argsDeploy.push(deploy.testlevel);
                 argsDeploy.push("--runtests");
                 argsDeploy.push(testClassesTmp);
             }
