@@ -16698,7 +16698,7 @@ let deploy = function (deploy){
 
 let destructiveDeploy = function (deploy){
     core.info("=== destructiveDeploy ===");
-    if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
+    if (deploy.destructivePath !== null && deploy.destructivePath !== '' && fs.existsSync(path)) {
         core.info('=== Applying destructive changes ===')
         var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', 'sfdc', '--wait', deploy.deployWaitTime, '-g', '--json'];
         if (deploy.checkonly) {
