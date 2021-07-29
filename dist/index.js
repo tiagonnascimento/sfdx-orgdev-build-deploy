@@ -13224,7 +13224,6 @@ try {
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       deploy.username = 'sfdc';
       deploy.sandbox = false;
-      deploy.packageFolder = core.getInput('package_folder');
       sfdx.deployer(deploy);
 
       if (core.getInput('sandbox_name')) {
@@ -13255,7 +13254,7 @@ try {
       break;
     case 'create-sandbox': 
       const createArgs = {};
-      createArgs.sandboxName = core.getInput('sandbox_name');
+      args.sandboxName = core.getInput('sandbox_name');
       sfdx.createSandbox(createArgs); 
       break;
     default:
@@ -13431,7 +13430,7 @@ let getMetadataTypes = function(manifestsFiles, sfdxRootFolder){
             for(var i in result.Package.types){
                 type = result.Package.types[i];
                 for(var j = 0; j < type.members.length; j++){
-                    let member = type.members[j];
+                    member = type.members[j];
                     if (member == "*") {
                         metadataTypes.push(type.name[0]);
                     } else {
@@ -13443,39 +13442,6 @@ let getMetadataTypes = function(manifestsFiles, sfdxRootFolder){
     }
 
     return metadataTypes.join(",");
-}
-
-const setTestArgs = function (deploy, argsDeploy, manifestFile){
-    if(deploy.testlevel == "RunSpecifiedTests"){
-        let sfdxRootFolder = deploy.sfdxRootFolder;
-        const testClassesTmp = getApexTestClass(
-            sfdxRootFolder ? path.join(sfdxRootFolder, manifestFile) : manifestFile, 
-            sfdxRootFolder ? path.join(sfdxRootFolder, deploy.defaultSourcePath, 'classes') : path.join(deploy.defaultSourcePath, 'classes'),
-            deploy.defaultTestClass);
-
-        core.info("classes are : "  + testClassesTmp);
-        
-        if(testClassesTmp){
-            argsDeploy.push("--testlevel");
-            argsDeploy.push(deploy.testlevel);
-
-            argsDeploy.push("--runtests");
-            argsDeploy.push(testClassesTmp);
-        }else{
-            argsDeploy.push("--testlevel");
-            argsDeploy.push("RunLocalTests");
-        }
-    }else{
-        argsDeploy.push("--testlevel");
-        argsDeploy.push(deploy.testlevel);
-    }
-}
-
-const addOutputToFileArgs = function(argsDeploy){
-    argsDeploy.push("|");
-    argsDeploy.push("tee");
-    argsDeploy.push("-a");
-    argsDeploy.push("/output.json");
 }
 
 let login = function (cert, login){
@@ -13492,37 +13458,47 @@ let login = function (cert, login){
 let deploy = function (deploy){
     core.info("=== deploy ===");
 
-    var manifestsArray = deploy.manifestToDeploy.split(",");  
+    var manifestsArray = deploy.manifestToDeploy.split(",");
+    var sfdxRootFolder = deploy.sfdxRootFolder;
+    
     var manifestTmp;
+    var testClassesTmp;
 
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
 
-        var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', deploy.username, '--json'];
+        var argsDeploy = ['force:source:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', deploy.username, '--json'];
 
         if(deploy.checkonly){
             core.info("===== CHECK ONLY ====");
             argsDeploy.push('--checkonly');
         }
-        setTestArgs(deploy, argsDeploy, manifestTmp);
-        addOutputToFileArgs(argsDeploy);
 
-        execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder);
+        if(deploy.testlevel == "RunSpecifiedTests"){
+            testClassesTmp = getApexTestClass(
+                sfdxRootFolder ? path.join(sfdxRootFolder, manifestTmp) : manifestTmp, 
+                sfdxRootFolder ? path.join(sfdxRootFolder, deploy.defaultSourcePath, 'classes') : path.join(deploy.defaultSourcePath, 'classes'),
+                deploy.defaultTestClass);
+
+            core.info("classes are : "  + testClassesTmp);
+            
+            if(testClassesTmp){
+                argsDeploy.push("--testlevel");
+                argsDeploy.push(deploy.testlevel);
+    
+                argsDeploy.push("--runtests");
+                argsDeploy.push(testClassesTmp);
+            }else{
+                argsDeploy.push("--testlevel");
+                argsDeploy.push("RunLocalTests");
+            }
+        }else{
+            argsDeploy.push("--testlevel");
+            argsDeploy.push(deploy.testlevel);
+        }
+
+        execCommand.run('sfdx', argsDeploy, sfdxRootFolder);
     }
-};
-
-let deployAllTogether = function (deploy){
-    core.info("=== deploy ===");
-
-    var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '-d', deploy.packageFolder, '--targetusername', deploy.username, '-g', '--json'];
-    if(deploy.checkonly){
-        core.info("===== CHECK ONLY ====");
-        argsDeploy.push('--checkonly');
-    }
-    setTestArgs(deploy, argsDeploy, deploy.packageFolder + 'package.xml');
-    addOutputToFileArgs(argsDeploy);
-
-    execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder);
 };
 
 let retrieve = function (retrieveArgs){
@@ -13535,7 +13511,6 @@ let retrieve = function (retrieveArgs){
     core.info(`metadata: ${metadataTypes}`);
 
     var commandArgs = ['force:source:retrieve', '--wait', retrieveArgs.deployWaitTime, '--metadata', metadataTypes, '--targetusername', 'sfdc', '--json', '--loglevel', 'INFO'];
-    addOutputToFileArgs(commandArgs);
 
     execCommand.run('sfdx', commandArgs, sfdxRootFolder);
 };
@@ -13548,7 +13523,6 @@ let destructiveDeploy = function (deploy){
         if (deploy.checkonly) {
             argsDestructive.push('--checkonly');
         }
-        addOutputToFileArgs(argsDestructive);
         execCommand.run('sfdx', argsDestructive);
     }
 };
@@ -13568,12 +13542,8 @@ const deployer = function (args){
     }
 
     //Deploy/Checkonly to Org
-    if (args.packageFolder){
-        deployAllTogether(args)
-    } else {
-        deploy(args);
-        destructiveDeploy(args);
-    }
+    deploy(args);
+    destructiveDeploy(args);
     dataFactory(args);
 
     if (!args.sandbox && !args.checkonly){
