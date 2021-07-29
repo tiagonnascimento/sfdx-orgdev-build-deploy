@@ -20,7 +20,7 @@ const getErrorMessage = function(spawn) {
 }
 
 const outputMessage = function(message, type) {
-    let fileName = '/output.txt';
+    let fileName = './output.txt';
     let fileFlags = {flag: 'as'};
 
     if (type == 'error') {
