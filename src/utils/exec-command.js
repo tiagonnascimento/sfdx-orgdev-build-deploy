@@ -1,5 +1,6 @@
 const core = require('@actions/core')
 const { spawnSync } = require('child_process');
+const fs = require('fs');
 
 const returnTypes = {
     LOGGED: 'logged',
@@ -18,6 +19,18 @@ const getErrorMessage = function(spawn) {
     return errorMessage;
 }
 
+const outputMessage = function(message, type) {
+    let fileName = '/output.txt';
+    let fileFlags = {flag: 'as'};
+
+    if (type == 'error') {
+        core.error(message);
+    } else {
+        core.info(message);
+    }
+    fs.writeFileSync(fileName,message,fileFlags);
+}
+
 module.exports.returnTypes = returnTypes;
 module.exports.run = function(command, args, workingFolder = null, process = null) {
     var extraParams = {};
@@ -34,9 +47,9 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
     var spawn = spawnSync(command, args, extraParams);
 
     if (spawn.stdout) {
-        core.info("Command executed: " + command)
-        core.info("With the following args: " + args.toString());
-        core.info("Having the following return: " + spawn.stdout.toString());
+        outputMessage("Command executed: " + command, 'info');
+        outputMessage("With the following args: " + args.toString(), 'info');
+        outputMessage("Having the following return: " + spawn.stdout.toString(), 'info');
 
         switch (process) {
             case 'authInSandbox':
@@ -65,7 +78,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
 
     if (spawn.error !== undefined || spawn.status !== 0) {
         const errorMessage = getErrorMessage(spawn);
-        core.error(errorMessage);
+        outputMessage(errorMessage, 'error');
         throw Error(errorMessage);
     }
 }
