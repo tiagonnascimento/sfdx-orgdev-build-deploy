@@ -13224,6 +13224,7 @@ try {
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       deploy.username = 'sfdc';
       deploy.sandbox = false;
+      deploy.packageFolder = core.getInput('package_folder');
       sfdx.deployer(deploy);
 
       if (core.getInput('sandbox_name')) {
@@ -13254,7 +13255,7 @@ try {
       break;
     case 'create-sandbox': 
       const createArgs = {};
-      args.sandboxName = core.getInput('sandbox_name');
+      createArgs.sandboxName = core.getInput('sandbox_name');
       sfdx.createSandbox(createArgs); 
       break;
     default:
@@ -13271,6 +13272,7 @@ try {
 
 const core = __webpack_require__(2186)
 const { spawnSync } = __webpack_require__(3129);
+const fs = __webpack_require__(5747);
 
 const returnTypes = {
     LOGGED: 'logged',
@@ -13289,6 +13291,18 @@ const getErrorMessage = function(spawn) {
     return errorMessage;
 }
 
+const outputMessage = function(message, type) {
+    let fileName = '/output.txt';
+    let fileFlags = {flag: 'as'};
+
+    if (type == 'error') {
+        core.error(message);
+    } else {
+        core.info(message);
+    }
+    fs.writeFileSync(fileName,message,fileFlags);
+}
+
 module.exports.returnTypes = returnTypes;
 module.exports.run = function(command, args, workingFolder = null, process = null) {
     var extraParams = {};
@@ -13305,9 +13319,9 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
     var spawn = spawnSync(command, args, extraParams);
 
     if (spawn.stdout) {
-        core.info("Command executed: " + command)
-        core.info("With the following args: " + args.toString());
-        core.info("Having the following return: " + spawn.stdout.toString());
+        outputMessage("Command executed: " + command, 'info');
+        outputMessage("With the following args: " + args.toString(), 'info');
+        outputMessage("Having the following return: " + spawn.stdout.toString(), 'info');
 
         switch (process) {
             case 'authInSandbox':
@@ -13336,7 +13350,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
 
     if (spawn.error !== undefined || spawn.status !== 0) {
         const errorMessage = getErrorMessage(spawn);
-        core.error(errorMessage);
+        outputMessage(errorMessage, 'error');
         throw Error(errorMessage);
     }
 }
@@ -13430,7 +13444,7 @@ let getMetadataTypes = function(manifestsFiles, sfdxRootFolder){
             for(var i in result.Package.types){
                 type = result.Package.types[i];
                 for(var j = 0; j < type.members.length; j++){
-                    member = type.members[j];
+                    let member = type.members[j];
                     if (member == "*") {
                         metadataTypes.push(type.name[0]);
                     } else {
@@ -13442,6 +13456,32 @@ let getMetadataTypes = function(manifestsFiles, sfdxRootFolder){
     }
 
     return metadataTypes.join(",");
+}
+
+const setTestArgs = function (deploy, argsDeploy, manifestFile){
+    if(deploy.testlevel == "RunSpecifiedTests"){
+        let sfdxRootFolder = deploy.sfdxRootFolder;
+        const testClassesTmp = getApexTestClass(
+            sfdxRootFolder ? path.join(sfdxRootFolder, manifestFile) : manifestFile, 
+            sfdxRootFolder ? path.join(sfdxRootFolder, deploy.defaultSourcePath, 'classes') : path.join(deploy.defaultSourcePath, 'classes'),
+            deploy.defaultTestClass);
+
+        core.info("classes are : "  + testClassesTmp);
+        
+        if(testClassesTmp){
+            argsDeploy.push("--testlevel");
+            argsDeploy.push(deploy.testlevel);
+
+            argsDeploy.push("--runtests");
+            argsDeploy.push(testClassesTmp);
+        }else{
+            argsDeploy.push("--testlevel");
+            argsDeploy.push("RunLocalTests");
+        }
+    }else{
+        argsDeploy.push("--testlevel");
+        argsDeploy.push(deploy.testlevel);
+    }
 }
 
 let login = function (cert, login){
@@ -13458,47 +13498,33 @@ let login = function (cert, login){
 let deploy = function (deploy){
     core.info("=== deploy ===");
 
-    var manifestsArray = deploy.manifestToDeploy.split(",");
-    var sfdxRootFolder = deploy.sfdxRootFolder;
-    
+    var manifestsArray = deploy.manifestToDeploy.split(",");  
     var manifestTmp;
-    var testClassesTmp;
 
     for(var i = 0; i < manifestsArray.length; i++){
         manifestTmp = manifestsArray[i];
 
-        var argsDeploy = ['force:source:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', deploy.username, '--json'];
+        var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '--manifest', manifestTmp, '--targetusername', deploy.username, '--json'];
 
         if(deploy.checkonly){
             core.info("===== CHECK ONLY ====");
             argsDeploy.push('--checkonly');
         }
-
-        if(deploy.testlevel == "RunSpecifiedTests"){
-            testClassesTmp = getApexTestClass(
-                sfdxRootFolder ? path.join(sfdxRootFolder, manifestTmp) : manifestTmp, 
-                sfdxRootFolder ? path.join(sfdxRootFolder, deploy.defaultSourcePath, 'classes') : path.join(deploy.defaultSourcePath, 'classes'),
-                deploy.defaultTestClass);
-
-            core.info("classes are : "  + testClassesTmp);
-            
-            if(testClassesTmp){
-                argsDeploy.push("--testlevel");
-                argsDeploy.push(deploy.testlevel);
-    
-                argsDeploy.push("--runtests");
-                argsDeploy.push(testClassesTmp);
-            }else{
-                argsDeploy.push("--testlevel");
-                argsDeploy.push("RunLocalTests");
-            }
-        }else{
-            argsDeploy.push("--testlevel");
-            argsDeploy.push(deploy.testlevel);
-        }
-
-        execCommand.run('sfdx', argsDeploy, sfdxRootFolder);
+        setTestArgs(deploy, argsDeploy, manifestTmp);
+        execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder);
     }
+};
+
+let deployAllTogether = function (deploy){
+    core.info("=== deploy ===");
+
+    var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '-d', deploy.packageFolder, '--targetusername', deploy.username, '-g', '--json'];
+    if(deploy.checkonly){
+        core.info("===== CHECK ONLY ====");
+        argsDeploy.push('--checkonly');
+    }
+    setTestArgs(deploy, argsDeploy, deploy.packageFolder + 'package.xml');
+    execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder);
 };
 
 let retrieve = function (retrieveArgs){
@@ -13511,7 +13537,6 @@ let retrieve = function (retrieveArgs){
     core.info(`metadata: ${metadataTypes}`);
 
     var commandArgs = ['force:source:retrieve', '--wait', retrieveArgs.deployWaitTime, '--metadata', metadataTypes, '--targetusername', 'sfdc', '--json', '--loglevel', 'INFO'];
-
     execCommand.run('sfdx', commandArgs, sfdxRootFolder);
 };
 
@@ -13542,8 +13567,12 @@ const deployer = function (args){
     }
 
     //Deploy/Checkonly to Org
-    deploy(args);
-    destructiveDeploy(args);
+    if (args.packageFolder){
+        deployAllTogether(args)
+    } else {
+        deploy(args);
+        destructiveDeploy(args);
+    }
     dataFactory(args);
 
     if (!args.sandbox && !args.checkonly){
