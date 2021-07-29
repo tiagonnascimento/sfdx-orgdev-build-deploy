@@ -48,7 +48,6 @@ try {
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       deploy.username = 'sfdc';
       deploy.sandbox = false;
-      deploy.packageFolder = core.getInput('package_folder');
       sfdx.deployer(deploy);
 
       if (core.getInput('sandbox_name')) {
@@ -79,7 +78,7 @@ try {
       break;
     case 'create-sandbox': 
       const createArgs = {};
-      createArgs.sandboxName = core.getInput('sandbox_name');
+      args.sandboxName = core.getInput('sandbox_name');
       sfdx.createSandbox(createArgs); 
       break;
     default:
