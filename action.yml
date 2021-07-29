@@ -38,7 +38,7 @@ inputs:
 
     manifest_path:
         description: 'Path on the current repository (or on the root folder of the sfdx project if sfdx_root_folder is set) to one or more package.xml that represents the packages to be deployed. Based on this files the metadata package will be created and deployed in the order specified'
-        required: true
+        required: false
 
     deploy_testlevel:
         description: 'Specifies which tests are run as part of a deployment. Valid values are: NoTestRun, RunSpecifiedTests, RunLocalTests, RunAllTestsInOrg'
@@ -78,6 +78,10 @@ inputs:
 
     sandbox_creation_type:
         description: 'Accepted types: new or clone. Default is clone.'
+        required: false
+
+    package_folder:
+        description: 'Path where manifest files to be deployed are. Mandatory if want to deploy new changes and destructive changes together'
         required: false
 
 runs:
