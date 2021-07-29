@@ -96,7 +96,9 @@ const setTestArgs = function (deploy, argsDeploy, manifestFile){
     }
 }
 
-const convertPackage = function(packageFolder, manifestFile){
+const convertPackage = function(packageFolder, manifestFile, sfdxRootFolder){
+    core.info("=== convert ===");
+
     const parser = new xml2js.Parser({ attrkey: "attr" });
 
     // you can read it asynchronously also
@@ -112,7 +114,7 @@ const convertPackage = function(packageFolder, manifestFile){
             } else {
                 ret = 3;
                 var argsDeploy = ['force:source:convert', '--rootdir', './', '--outputdir', packageFolder, '-x', manifestFile, '--json'];
-                execCommand.run(argsDeploy);
+                execCommand.run('sfdx',argsDeploy, sfdxRootFolder);
         }
     });
     return ret;
@@ -139,7 +141,7 @@ let deploy = function (deploy){
         manifestTmp = manifestsArray[i];
         let packageFolder = 'folder' + i;
         //deploy only if package doesn't have errors and if it's not empty
-        if (convertPackage(packageFolder, manifestTmp) == 3){
+        if (convertPackage(packageFolder, manifestTmp, deploy.sfdxRootFolder) == 3){
             var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '-d', packageFolder, '--targetusername', deploy.username, '--json'];
             if(deploy.checkonly){
                 core.info("===== CHECK ONLY ====");
@@ -155,7 +157,7 @@ let deployAllTogether = function (deploy){
     core.info("=== deploy ===");
     let manifestFile = deploy.packageFolder + 'package.xml';
     //if package is empty, deploy anyway as can have destructive changes
-    if (convertPackage(deploy.packageFolder, manifestFile) != 1){
+    if (convertPackage(deploy.packageFolder, manifestFile, deploy.sfdxRootFolder) != 1){
         var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '-d', deploy.packageFolder, '--targetusername', deploy.username, '--json'];
         if(deploy.checkonly){
             core.info("===== CHECK ONLY ====");
