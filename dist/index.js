@@ -13490,7 +13490,7 @@ const convertPackage = function(packageFolder, manifestFile, sfdxRootFolder){
     const parser = new xml2js.Parser({ attrkey: "attr" });
 
     // you can read it asynchronously also
-    let xml_string = fs.readFileSync(manifestFile, "utf8");
+    let xml_string = fs.readFileSync(sfdxRootFolder + '/' + manifestFile, "utf8");
     let ret;
     parser.parseString(xml_string, function(error, result) {
             if (error !== null) {
