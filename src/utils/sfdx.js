@@ -133,28 +133,6 @@ let login = function (cert, login){
 
 let deploy = function (deploy){
     core.info("=== deploy ===");
-
-    var manifestsArray = deploy.manifestToDeploy.split(",");  
-    var manifestTmp;
-
-    for(var i = 0; i < manifestsArray.length; i++){
-        manifestTmp = manifestsArray[i];
-        let packageFolder = 'folder' + i;
-        //deploy only if package doesn't have errors and if it's not empty
-        if (convertPackage(packageFolder, manifestTmp, deploy.sfdxRootFolder) == 3){
-            var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '-d', packageFolder, '--targetusername', deploy.username, '--json'];
-            if(deploy.checkonly){
-                core.info("===== CHECK ONLY ====");
-                argsDeploy.push('--checkonly');
-            }
-            setTestArgs(deploy, argsDeploy, manifestTmp);
-            execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder);
-        }
-    }
-};
-
-let deployAllTogether = function (deploy){
-    core.info("=== deploy ===");
     let manifestFile = deploy.packageFolder + 'package.xml';
     //if package is empty, deploy anyway as can have destructive changes
     if (convertPackage(deploy.packageFolder, manifestFile, deploy.sfdxRootFolder) != 1){
@@ -181,18 +159,6 @@ let retrieve = function (retrieveArgs){
     execCommand.run('sfdx', commandArgs, sfdxRootFolder);
 };
 
-let destructiveDeploy = function (deploy){
-    core.info("=== destructiveDeploy ===");
-    if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
-        core.info('=== Applying destructive changes ===')
-        var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', deploy.username, '--wait', deploy.deployWaitTime, '-g', '--json'];
-        if (deploy.checkonly) {
-            argsDestructive.push('--checkonly');
-        }
-        execCommand.run('sfdx', argsDestructive);
-    }
-};
-
 let dataFactory = function (deploy){
     core.info("=== dataFactory ===");
     if (deploy.dataFactory  && !deploy.checkonly) {
@@ -208,12 +174,7 @@ const deployer = function (args){
     }
 
     //Deploy/Checkonly to Org
-    if (args.packageFolder){
-        deployAllTogether(args)
-    } else {
-        deploy(args);
-        destructiveDeploy(args);
-    }
+    deploy(args)
     dataFactory(args);
 
     if (!args.sandbox && !args.checkonly){

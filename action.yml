@@ -37,7 +37,7 @@ inputs:
         required: false
 
     manifest_path:
-        description: 'Path on the current repository (or on the root folder of the sfdx project if sfdx_root_folder is set) to one or more package.xml that represents the packages to be deployed. Based on this files the metadata package will be created and deployed in the order specified'
+        description: 'Path on the current repository (or on the root folder of the sfdx project if sfdx_root_folder is set) to retrieve changes'
         required: false
 
     deploy_testlevel:
