@@ -142,7 +142,7 @@ let deploy = function (deploy){
             argsDeploy.push('--checkonly');
         }
         setTestArgs(deploy, argsDeploy, manifestFile);
-        execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder);
+        execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder, null, deploy.outputStdout);
     }
 };
 

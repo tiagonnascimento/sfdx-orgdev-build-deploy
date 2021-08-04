@@ -13224,6 +13224,7 @@ try {
       deploy.username = 'sfdc';
       deploy.sandbox = false;
       deploy.packageFolder = core.getInput('package_folder');
+      deploy.outputStdout = (core.getInput('output_stdout') === 'true' )? true : false;
       sfdx.deployer(deploy);
 
       if (core.getInput('sandbox_name')) {
@@ -13290,20 +13291,22 @@ const getErrorMessage = function(spawn) {
     return errorMessage;
 }
 
-const outputMessage = function(message, type) {
+const outputMessage = function(message, type, outputStdout) {
     let fileName = './output.txt';
     let fileFlags = {flag: 'as'};
 
     if (type == 'error') {
         core.error(message);
     } else {
-        core.info(message);
+        if (type != 'stdout' || outputStdout){
+            core.info(message);
+        }
     }
     fs.writeFileSync(fileName,message,fileFlags);
 }
 
 module.exports.returnTypes = returnTypes;
-module.exports.run = function(command, args, workingFolder = null, process = null) {
+module.exports.run = function(command, args, workingFolder = null, process = null, outputStdout = true) {
     var extraParams = {};
     
     //extraParams.shell = true;
@@ -13318,9 +13321,9 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
     var spawn = spawnSync(command, args, extraParams);
 
     if (spawn.stdout) {
-        outputMessage("Command executed: " + command, 'info');
-        outputMessage("With the following args: " + args.toString(), 'info');
-        outputMessage("Having the following return: " + spawn.stdout.toString(), 'info');
+        outputMessage("Command executed: " + command, 'info', outputStdout);
+        outputMessage("With the following args: " + args.toString(), 'info', outputStdout);
+        outputMessage("Having the following return: " + spawn.stdout.toString(), 'stdout', outputStdout);
 
         switch (process) {
             case 'authInSandbox':
@@ -13349,7 +13352,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
 
     if (spawn.error !== undefined || spawn.status !== 0) {
         const errorMessage = getErrorMessage(spawn);
-        outputMessage(errorMessage, 'error');
+        outputMessage(errorMessage, 'error', outputStdout);
         throw Error(errorMessage);
     }
 }
@@ -13529,7 +13532,7 @@ let deploy = function (deploy){
             argsDeploy.push('--checkonly');
         }
         setTestArgs(deploy, argsDeploy, manifestFile);
-        execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder);
+        execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder, null, deploy.outputStdout);
     }
 };
 
