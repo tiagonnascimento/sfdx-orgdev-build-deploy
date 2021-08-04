@@ -84,6 +84,10 @@ inputs:
         description: 'Path where manifest files to be deployed are. Mandatory if want to deploy new changes and destructive changes together'
         required: false
 
+    output_stdout:
+        description: 'Boolean (true/false) that will indicate if deployment stdout should be printed to output. Default is true.'
+        required: false
+
 runs:
     using: 'node12'
     main: 'dist/index.js'
