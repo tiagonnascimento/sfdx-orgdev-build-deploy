@@ -13224,7 +13224,7 @@ try {
       deploy.username = 'sfdc';
       deploy.sandbox = false;
       deploy.packageFolder = core.getInput('package_folder');
-      deploy.outputStdout = (core.getInput('output_stdout') === 'true' )? true : false;
+      deploy.outputStdout = (core.getInput('output_stdout') === 'false' )? false : true;
       sfdx.deployer(deploy);
 
       if (core.getInput('sandbox_name')) {
