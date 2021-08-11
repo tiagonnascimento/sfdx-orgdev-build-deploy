@@ -1,4 +1,5 @@
 const core = require('@actions/core')
+const glob = require('glob')
 const path = require('path');
 const execCommand = require('./exec-command.js');
 const fs = require('fs');
@@ -22,7 +23,15 @@ let getApexTestClass = function(manifestpath, classesPath, defaultTestClass){
             }
         }
     });
-
+    core.info(classes);
+    if(classes=="*"){
+        classes = [];
+        const filenameRegex = /^.*\/([\w\d_-].*).cls$/i;
+        var foundClasses = glob.sync(classesPath+"/*.cls");
+        for(var i = 0; i < foundClasses.length; i++){
+            classes.push(foundClasses[i].match(filenameRegex)[1]);
+        }
+    }
     if(classes){
         for(var i = 0; i < classes.length; i++){
             classNameTmp = classes[i];
@@ -82,12 +91,8 @@ let deploy = function (deploy){
             if(testClassesTmp){
                 argsDeploy.push("--testlevel");
                 argsDeploy.push(deploy.testlevel);
-    
                 argsDeploy.push("--runtests");
                 argsDeploy.push(testClassesTmp);
-            }else{
-                argsDeploy.push("--testlevel");
-                argsDeploy.push("RunLocalTests");
             }
         }else{
             argsDeploy.push("--testlevel");
@@ -100,7 +105,7 @@ let deploy = function (deploy){
 
 let destructiveDeploy = function (deploy){
     core.info("=== destructiveDeploy ===");
-    if (deploy.destructivePath !== null && deploy.destructivePath !== '') {
+    if (deploy.destructivePath !== null && deploy.destructivePath !== '' && fs.existsSync(path)) {
         core.info('=== Applying destructive changes ===')
         var argsDestructive = ['force:mdapi:deploy', '-d', deploy.destructivePath, '-u', 'sfdc', '--wait', deploy.deployWaitTime, '-g', '--json'];
         if (deploy.checkonly) {
