@@ -136,7 +136,7 @@ let deploy = function (deploy){
     let manifestFile = deploy.packageFolder + 'package.xml';
     //if package is empty, deploy anyway as can have destructive changes
     if (convertPackage(deploy.packageFolder, manifestFile, deploy.sfdxRootFolder) != 1){
-        var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '-d', deploy.packageFolder, '--targetusername', deploy.username, '--json'];
+        var argsDeploy = ['force:mdapi:deploy', '--wait', deploy.deployWaitTime, '-d', deploy.packageFolder, '--targetusername', deploy.username, '--json','--ignorewarnings'];
         if(deploy.checkonly){
             core.info("===== CHECK ONLY ====");
             argsDeploy.push('--checkonly');
