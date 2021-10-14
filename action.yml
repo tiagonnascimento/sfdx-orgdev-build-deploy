@@ -50,6 +50,11 @@ inputs:
         required: false
         default: '60'
 
+    ignore_warnings:
+        description: 'pass --ignorewarnings option to sfdx command'
+        required: false
+        default: true
+        
     destructive_path:
         description: 'Path for the destructive changes directory'
         required: false

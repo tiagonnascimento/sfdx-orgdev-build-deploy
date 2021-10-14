@@ -141,6 +141,9 @@ let deploy = function (deploy){
             core.info("===== CHECK ONLY ====");
             argsDeploy.push('--checkonly');
         }
+        if(deploy.ignore_warnings){
+            argsDeploy.push('--ignorewarnings');
+        }
         setTestArgs(deploy, argsDeploy, manifestFile);
         execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder, null, deploy.outputStdout);
     }
