@@ -13219,6 +13219,7 @@ try {
       deploy.destructivePath = core.getInput('destructive_path');
       deploy.dataFactory = core.getInput('data_factory');
       deploy.checkonly = (core.getInput('checkonly') === 'true' )? true : false;
+      deploy.ignoreWarnings = (core.getInput('ignore_warnings') === 'false' )? false : true;
       deploy.testlevel = core.getInput('deploy_testlevel');
       deploy.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       deploy.username = 'sfdc';
@@ -13530,6 +13531,9 @@ let deploy = function (deploy){
         if(deploy.checkonly){
             core.info("===== CHECK ONLY ====");
             argsDeploy.push('--checkonly');
+        }
+        if(deploy.ignoreWarnings){
+            argsDeploy.push('--ignorewarnings');
         }
         setTestArgs(deploy, argsDeploy, manifestFile);
         execCommand.run('sfdx', argsDeploy, deploy.sfdxRootFolder, null, deploy.outputStdout);
