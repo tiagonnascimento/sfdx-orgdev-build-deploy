@@ -52,7 +52,7 @@ inputs:
 
     ignore_warnings:
         description: 'pass --ignorewarnings option to sfdx command'
-        required: false
+        required: true
         default: true
         
     destructive_path:
