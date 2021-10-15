@@ -141,7 +141,7 @@ let deploy = function (deploy){
             core.info("===== CHECK ONLY ====");
             argsDeploy.push('--checkonly');
         }
-        if(deploy.ignore_warnings){
+        if(deploy.ignoreWarnings){
             argsDeploy.push('--ignorewarnings');
         }
         setTestArgs(deploy, argsDeploy, manifestFile);
