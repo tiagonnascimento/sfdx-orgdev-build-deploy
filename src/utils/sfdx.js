@@ -240,9 +240,17 @@ const deleteSandbox = function (username){
     core.setOutput('errorDeletingSandbox',execReturn);
 }
 
+const runTests = function(args) {
+    core.info("=== runTests ===");
+    const commandArgs = ['force:apex:test:run', '-u', args.username, '-w',args.deployWaitTime,'-r','json','--verbose'];
+	const execReturn = execCommand.run('sfdx', commandArgs, null, 'runTests');
+    core.setOutput('status',execReturn);
+}
+
 module.exports.login = login;
 module.exports.deployer = deployer;
 module.exports.retrieve = retrieve;
 module.exports.authInSandbox = authInSandbox;
 module.exports.createSandbox = createSandbox;
 module.exports.deleteSandbox = deleteSandbox;
+module.exports.runTests = runTests;

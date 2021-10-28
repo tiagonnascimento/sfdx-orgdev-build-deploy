@@ -83,6 +83,12 @@ try {
       createArgs.sandboxName = core.getInput('sandbox_name');
       sfdx.createSandbox(createArgs); 
       break;
+    case 'run-tests':
+      const testArgs = {};
+      testArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60';
+      testArgs.username = 'sfdc';
+      sfdx.runTests(testArgs);
+      break;
     default:
       core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
   }

@@ -13259,6 +13259,12 @@ try {
       createArgs.sandboxName = core.getInput('sandbox_name');
       sfdx.createSandbox(createArgs); 
       break;
+    case 'run-tests':
+      const testArgs = {};
+      testArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60';
+      testArgs.username = 'sfdc';
+      sfdx.runTests(testArgs);
+      break;
     default:
       core.setFailed(`Unexpected operation: ${operationType}. Accepted values: deploy,retrieve`);
   }
@@ -13347,6 +13353,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
                 }
                 break;
             case 'deleteSandbox':
+            case 'runTests':
                 return spawn.status;
         }
     }
@@ -13631,12 +13638,20 @@ const deleteSandbox = function (username){
     core.setOutput('errorDeletingSandbox',execReturn);
 }
 
+const runTests = function(args) {
+    core.info("=== runTests ===");
+    const commandArgs = ['force:apex:test:run', '-u', args.username, '-w',args.deployWaitTime,'-r','json','--verbose'];
+	const execReturn = execCommand.run('sfdx', commandArgs, null, 'runTests');
+    core.setOutput('status',execReturn);
+}
+
 module.exports.login = login;
 module.exports.deployer = deployer;
 module.exports.retrieve = retrieve;
 module.exports.authInSandbox = authInSandbox;
 module.exports.createSandbox = createSandbox;
 module.exports.deleteSandbox = deleteSandbox;
+module.exports.runTests = runTests;
 
 /***/ }),
 

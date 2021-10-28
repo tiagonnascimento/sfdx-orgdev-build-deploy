@@ -74,6 +74,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
                 }
                 break;
             case 'deleteSandbox':
+            case 'runTests':
                 return spawn.status;
         }
     }
