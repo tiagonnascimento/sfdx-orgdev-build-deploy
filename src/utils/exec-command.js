@@ -50,6 +50,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
 
     if (process === 'sfdxVersion') {
         outputMessage(spawn);
+        return (spawn.stdout) ? true : false;
     }
 
     if (spawn.stdout) {
@@ -80,8 +81,6 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
             case 'deleteSandbox':
             case 'runTests':
                 return spawn.status;
-            case 'sfdxVersion':
-                return spawn.stdout.toString() !== '/bin/sh: sfdx: not found';
         }
     }
 
