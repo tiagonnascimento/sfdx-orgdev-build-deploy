@@ -81,7 +81,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
             case 'runTests':
                 return spawn.status;
             case 'sfdxVersion':
-                return spawn.stdout.toString() !== '/bin/sh: sfdx: not found';
+                return spawn.stdout !== '/bin/sh: sfdx: not found';
         }
     }
 
