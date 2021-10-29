@@ -52,7 +52,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
         outputMessage(spawn.error);
         outputMessage(spawn.error === 'Error: spawnSync sfdx ENOENT');
         outputMessage(spawn.stdout);
-        outputMessage(JSON.strigify(spawn));
+        outputMessage(JSON.stringify(spawn));
         return (spawn.stdout) ? true : false;
     }
 
