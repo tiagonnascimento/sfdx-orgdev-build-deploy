@@ -13,7 +13,7 @@ const getErrorMessage = function(spawn) {
     if (spawn.error !== undefined) {
         errorMessage = spawn.error;
     } 
-    if (spawn.stderr !== undefined) {
+    if (spawn.stderr) {
         errorMessage += " " + spawn.stderr.toString();
     }
     return errorMessage;
@@ -81,7 +81,7 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
             case 'runTests':
                 return spawn.status;
             case 'sfdxVersion':
-                return spawn.stdout !== '/bin/sh: sfdx: not found';
+                return spawn.stdout.toString() !== '/bin/sh: sfdx: not found';
         }
     }
 
