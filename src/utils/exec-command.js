@@ -49,7 +49,10 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
     var spawn = spawnSync(command, args, extraParams);
 
     if (process === 'sfdxVersion') {
-        outputMessage(spawn);
+        outputMessage(spawn.error);
+        outputMessage(spawn.error === 'Error: spawnSync sfdx ENOENT');
+        outputMessage(spawn.stdout);
+        outputMessage(JSON.strigify(spawn));
         return (spawn.stdout) ? true : false;
     }
 
