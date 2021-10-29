@@ -13329,12 +13329,15 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
 
     var spawn = spawnSync(command, args, extraParams);
 
-    if (process === 'sfdxVersion') {
+    if (process === 'sfdxIsInstalled') {
         outputMessage(spawn.error);
-        outputMessage(spawn.error === 'Error: spawnSync sfdx ENOENT');
-        outputMessage(spawn.stdout);
         outputMessage(JSON.stringify(spawn));
-        return (spawn.stdout) ? true : false;
+        if (spawn.error && spawn.error.code === 'ENOENT') {
+            return false;
+        } else if (spawn.stdout) {
+            outputMessage(spawn.stdout);
+            return true;
+        }
     }
 
     if (spawn.stdout) {
@@ -13384,7 +13387,7 @@ const core = __webpack_require__(2186)
 const execCommand = __webpack_require__(5505);
 
 var fnInstallSFDX = function(){
-    const installed = execCommand.run('sfdx',['version'],null,'sfdxVersion');
+    const installed = execCommand.run('sfdx',['version'],null,'sfdxIsInstalled');
     if (!installed) {
         core.info('=== Downloading and installing SFDX cli ===');
         //execCommand.run('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-cli/channels/stable/sfdx-cli-v7.72.0-697e9faee2-linux-x64.tar.xz']);

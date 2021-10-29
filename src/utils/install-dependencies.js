@@ -2,7 +2,7 @@ const core = require('@actions/core')
 const execCommand = require('./exec-command.js');
 
 var fnInstallSFDX = function(){
-    const installed = execCommand.run('sfdx',['version'],null,'sfdxVersion');
+    const installed = execCommand.run('sfdx',['version'],null,'sfdxIsInstalled');
     if (!installed) {
         core.info('=== Downloading and installing SFDX cli ===');
         //execCommand.run('wget', ['https://developer.salesforce.com/media/salesforce-cli/sfdx-cli/channels/stable/sfdx-cli-v7.72.0-697e9faee2-linux-x64.tar.xz']);
