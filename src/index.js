@@ -87,6 +87,8 @@ try {
       const testArgs = {};
       testArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60';
       testArgs.username = 'sfdc';
+      testArgs.testsToRun = core.getInput('tests_to_run') || null;
+      testArgs.outputStdout = (core.getInput('output_stdout') === 'false' )? false : true;
       sfdx.runTests(testArgs);
       break;
     default:

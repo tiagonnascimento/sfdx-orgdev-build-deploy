@@ -13263,6 +13263,8 @@ try {
       const testArgs = {};
       testArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60';
       testArgs.username = 'sfdc';
+      testArgs.testsToRun = core.getInput('tests_to_run') || null;
+      testArgs.outputStdout = (core.getInput('output_stdout') === 'false' )? false : true;
       sfdx.runTests(testArgs);
       break;
     default:
@@ -13641,7 +13643,11 @@ const deleteSandbox = function (username){
 const runTests = function(args) {
     core.info("=== runTests ===");
     const commandArgs = ['force:apex:test:run', '-u', args.username, '-w',args.deployWaitTime,'-r','json','--verbose'];
-	const execReturn = execCommand.run('sfdx', commandArgs, null, 'runTests');
+    if (args.testsToRun) {
+        commandArgs.push('-n');
+        commandArgs.push(args.testsToRun);
+    }
+	const execReturn = execCommand.run('sfdx', commandArgs, null, 'runTests', args.outputStdout);
     core.setOutput('status',execReturn);
 }
 

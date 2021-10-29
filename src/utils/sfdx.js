@@ -243,7 +243,11 @@ const deleteSandbox = function (username){
 const runTests = function(args) {
     core.info("=== runTests ===");
     const commandArgs = ['force:apex:test:run', '-u', args.username, '-w',args.deployWaitTime,'-r','json','--verbose'];
-	const execReturn = execCommand.run('sfdx', commandArgs, null, 'runTests');
+    if (args.testsToRun) {
+        commandArgs.push('-n');
+        commandArgs.push(args.testsToRun);
+    }
+	const execReturn = execCommand.run('sfdx', commandArgs, null, 'runTests', args.outputStdout);
     core.setOutput('status',execReturn);
 }
 

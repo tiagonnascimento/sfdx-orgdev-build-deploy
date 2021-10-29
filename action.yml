@@ -93,6 +93,10 @@ inputs:
         description: 'Boolean (true/false) that will indicate if deployment stdout should be printed to output. Default is true.'
         required: false
 
+    tests_to_run:
+        description: 'Tests to run in RunTests action. If not specified it will run all tests.'
+        required: false
+
 runs:
     using: 'node12'
     main: 'dist/index.js'
