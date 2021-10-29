@@ -76,6 +76,8 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
             case 'deleteSandbox':
             case 'runTests':
                 return spawn.status;
+            case 'sfdxInstalled':
+                return spawn.stdout.toString() !== '/bin/sh: sfdx: not found';
         }
     }
 
