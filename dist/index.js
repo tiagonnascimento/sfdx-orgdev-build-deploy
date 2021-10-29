@@ -13330,8 +13330,6 @@ module.exports.run = function(command, args, workingFolder = null, process = nul
     var spawn = spawnSync(command, args, extraParams);
 
     if (process === 'sfdxIsInstalled') {
-        outputMessage(spawn.error);
-        outputMessage(JSON.stringify(spawn));
         if (spawn.error && spawn.error.code === 'ENOENT') {
             return false;
         } else if (spawn.stdout) {
