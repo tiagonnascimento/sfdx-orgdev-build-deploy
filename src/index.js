@@ -78,6 +78,10 @@ try {
       retrieveArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       sfdx.retrieve(retrieveArgs);
       break;
+    case 'dumpChanges':
+      retrieveArgs.sfdxRootFolder = core.getInput('sfdx_root_folder');
+      sfdx.dumpChanges(retrieveArgs);
+      break;
     case 'create-sandbox': 
       const createArgs = {};
       createArgs.sandboxName = core.getInput('sandbox_name');

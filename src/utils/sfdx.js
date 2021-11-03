@@ -162,6 +162,13 @@ let retrieve = function (retrieveArgs){
     execCommand.run('sfdx', commandArgs, sfdxRootFolder);
 };
 
+let dumpChanges = function(dumpChangesArgs){
+    console.info("===dump changes===");
+    let query = "SELECT CreatedDate, CreatedBy.Name, ResponsibleNamespacePrefix, Action,CreatedById,DelegateUser,Display,Id,Section FROM SetupAuditTrail WHERE createdDate = YESTERDAY";
+    var commandArgs = ['force:data:soql:query', '-q', query, '--resultformat' ,'csv' ,'>','..\\changes.csv'];
+    execCommand.run('sfdx', commandArgs, sfdxRootFolder);
+}
+
 let dataFactory = function (deploy){
     core.info("=== dataFactory ===");
     if (deploy.dataFactory  && !deploy.checkonly) {
@@ -254,6 +261,7 @@ const runTests = function(args) {
 module.exports.login = login;
 module.exports.deployer = deployer;
 module.exports.retrieve = retrieve;
+module.exports.dumpChanges = dumpChanges;
 module.exports.authInSandbox = authInSandbox;
 module.exports.createSandbox = createSandbox;
 module.exports.deleteSandbox = deleteSandbox;
