@@ -31,7 +31,6 @@ try {
   sfdx.login(cert,login);
 
   const operationType = core.getInput('operation_type');
-
   switch (operationType){
     case 'deploy':
       const deploy = {};
@@ -77,6 +76,11 @@ try {
       retrieveArgs.sfdxRootFolder = core.getInput('sfdx_root_folder');
       retrieveArgs.deployWaitTime = core.getInput('deploy_wait_time') || '60'; // Default wait time is 60 minutes
       sfdx.retrieve(retrieveArgs);
+      break;
+    case 'dumpChanges':
+      const dumpChangesArgs = {};
+      dumpChangesArgs.sfdxRootFolder = core.getInput('sfdx_root_folder');
+      sfdx.dumpChanges(dumpChangesArgs);
       break;
     case 'create-sandbox': 
       const createArgs = {};

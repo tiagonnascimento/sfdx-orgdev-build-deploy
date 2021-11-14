@@ -162,6 +162,18 @@ let retrieve = function (retrieveArgs){
     execCommand.run('sfdx', commandArgs, sfdxRootFolder);
 };
 
+let dumpChanges = function(dumpChangesArgs){
+    console.info("===dump changes===");
+    var sfdxRootFolder = dumpChangesArgs.sfdxRootFolder;
+    const oneDayOffset = (24*60*60*1000) * 1;
+    let dt = new Date() - oneDayOffset; //24 hour before
+    const dtString = new Date(dt).toISOString();
+    let query = "SELECT CreatedDate, CreatedBy.Name, ResponsibleNamespacePrefix, Action,CreatedById,DelegateUser,Display,Id,Section FROM SetupAuditTrail WHERE action not in ('suOrgAdminLogout' , 'suOrgAdminLogin') and createdDate > " + dtString;
+    core.info(query);
+    var commandArgs = ['force:data:soql:query', '-q', query, '--resultformat' ,'csv', '--targetusername', 'sfdc'];
+    execCommand.run('sfdx', commandArgs, sfdxRootFolder, null, true );
+}
+
 let dataFactory = function (deploy){
     core.info("=== dataFactory ===");
     if (deploy.dataFactory  && !deploy.checkonly) {
@@ -254,6 +266,7 @@ const runTests = function(args) {
 module.exports.login = login;
 module.exports.deployer = deployer;
 module.exports.retrieve = retrieve;
+module.exports.dumpChanges = dumpChanges;
 module.exports.authInSandbox = authInSandbox;
 module.exports.createSandbox = createSandbox;
 module.exports.deleteSandbox = deleteSandbox;
