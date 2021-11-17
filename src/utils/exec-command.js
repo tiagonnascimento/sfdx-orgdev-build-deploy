@@ -30,16 +30,13 @@ const outputMessage = function(message, type, outputStdout) {
             core.info(message);
         }
     }
+    message = message.toString().replace('"', '\\"');
     fs.writeFileSync(fileName,message,fileFlags);
 }
 
 module.exports.returnTypes = returnTypes;
 module.exports.run = function(command, args, workingFolder = null, process = null, outputStdout = true) {
     var extraParams = {};
-    
-    //extraParams.shell = true;
-    //extraParams.env = process.env;
-    //extraParams.stdio = [process.stdin, process.stdout , process.stderr];
     if (workingFolder) {
         extraParams.cwd = workingFolder;
     }
